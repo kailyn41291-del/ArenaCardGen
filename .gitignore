@@ -73,3 +73,6 @@ node_modules/
 out/
 .electron-cache/
 # (dist/ 已被 PyInstaller 段 ignore,涵蓋 app/dist/)
+
+# ── Claude Code 內部 state ───────────────────────────────
+.claude/scheduled_tasks.lock

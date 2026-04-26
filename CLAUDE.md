@@ -115,6 +115,24 @@ pyinstaller --onefile --windowed \
 
 ## 協作規則
 
+### 嚴格審視機制(寫 code 的 Claude 必讀)
+
+User 要求對重大改動由獨立的 [strict-reviewer agent](.claude/agents/strict-reviewer.md) 做第二意見審視。**寫 code 的你不該自己評斷自己的工作,要主動 spawn reviewer**,把 reviewer 的結果原文回報給 user(不過濾、不軟化)。
+
+**何時必須 spawn strict-reviewer**:
+- 任何 visual / 美術設計變更(icon、logo、UI 配色、layout、動畫)
+- 重大功能完成後(>50 行 code,或新元件 / 新流程)
+- commit 前(讓 review 結果決定要不要先修才 commit)
+- ZIP 打包前(確認沒新引入 regression)
+
+**怎麼 spawn**(self-contained prompt):
+- 範圍清楚說明(改了什麼 / 哪些檔案 / 什麼意圖)
+- 提供必要 context(相關 commit hash、file path、UI 截圖路徑)
+- 說明已知 issue 不要重複報
+- 要求繁中、🔴/🟡/💭 三級分類
+
+審視結果會比你自評更嚴格,**接到 review 結果不要解釋 / 辯護,直接照做或跟 user 討論優先序。**
+
 ### 分支與 PR
 
 - ❌ **不直接 push main**
