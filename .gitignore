@@ -67,3 +67,9 @@ exports/
 
 # ── Resolume 相關(將來如果加 .avc / clip 設定) ────────
 *.avc
+
+# ── Electron / Node ──────────────────────────────────────
+node_modules/
+out/
+.electron-cache/
+# (dist/ 已被 PyInstaller 段 ignore,涵蓋 app/dist/)
