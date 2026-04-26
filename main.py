@@ -120,9 +120,9 @@ DEFAULT_SETTINGS = {
     "use_type_colors": True,
     "type_colors": {
         "song":       "#ffffff",
-        "talking":    "#ffeb3b",
-        "transition": "#ff80ab",
-        "chaser":     "#ff5252",
+        "talking":    "#ffff00",
+        "transition": "#ff0080",
+        "chaser":     "#ff0000",
     },
     "split_preference_5": "3/2",
     "use_jieba": True,
@@ -569,12 +569,12 @@ TX3 = "#444444"
 AC  = "#4ade80"
 AC2 = "#22c55e"
 
-# 文字色 preset
+# 文字色 preset(VJ 指定的飽和亮色,適合疊在動態背景上)
 TEXT_COLOR_PRESETS = [
     ("白", "#ffffff"),
-    ("紅", "#ff5252"),
-    ("粉", "#ff80ab"),
-    ("黃", "#ffeb3b"),
+    ("紅", "#ff0000"),
+    ("粉", "#ff0080"),
+    ("黃", "#ffff00"),
 ]
 
 TYPE_LABEL = {
@@ -677,6 +677,76 @@ class App(tk.Tk):
         inp = tk.Frame(left, bg=S1, padx=14, pady=10)
         inp.grid(row=2, column=0, sticky="ew")
 
+        # ── 快速範本產生器 ──
+        tpl_frame = tk.Frame(inp, bg=S2, padx=8, pady=6)
+        tpl_frame.pack(fill="x", pady=(0, 6))
+        tk.Label(tpl_frame, text="快速產生(append 到輸入框)",
+                 bg=S2, fg=TX3, font=("Helvetica", 9, "bold")).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
+
+        # 預設範圍變數
+        self.tpl_s_from = tk.IntVar(value=1)
+        self.tpl_s_to   = tk.IntVar(value=20)
+        self.tpl_tk_n   = tk.IntVar(value=5)
+        self.tpl_tr_n   = tk.IntVar(value=3)
+        self.tpl_ch_n   = tk.IntVar(value=2)
+
+        sp_kw = dict(bg=S1, fg=TX, font=("Courier New", 10), relief="flat",
+                     buttonbackground=S3, highlightthickness=1,
+                     highlightcolor=AC, highlightbackground=BD, width=4, justify="center")
+
+        # Row 1: S## 範圍
+        tk.Label(tpl_frame, text="S", bg=S2, fg=AC, font=("Helvetica", 10, "bold"), width=6, anchor="w")\
+            .grid(row=1, column=0, sticky="w", padx=(0, 2), pady=2)
+        tk.Spinbox(tpl_frame, from_=1, to=99, textvariable=self.tpl_s_from, **sp_kw)\
+            .grid(row=1, column=1, padx=2)
+        tk.Label(tpl_frame, text="–", bg=S2, fg=TX2, font=("Helvetica", 10))\
+            .grid(row=1, column=2)
+        tk.Spinbox(tpl_frame, from_=1, to=99, textvariable=self.tpl_s_to, **sp_kw)\
+            .grid(row=1, column=3, padx=2)
+        tk.Button(tpl_frame, text="+加入", command=self._tpl_add_songs,
+                  bg=AC, fg="#000", font=("Helvetica", 9, "bold"),
+                  relief="flat", bd=0, padx=10, cursor="hand2",
+                  activebackground=AC2).grid(row=1, column=4, padx=(6, 0), sticky="ew")
+
+        # Row 2: TALKING
+        tk.Label(tpl_frame, text="TALKING", bg=S2, fg="#ffeb3b", font=("Helvetica", 10, "bold"), width=6, anchor="w")\
+            .grid(row=2, column=0, sticky="w", padx=(0, 2), pady=2)
+        tk.Label(tpl_frame, text="共", bg=S2, fg=TX2, font=("Helvetica", 9))\
+            .grid(row=2, column=1, sticky="e")
+        tk.Spinbox(tpl_frame, from_=1, to=20, textvariable=self.tpl_tk_n, **sp_kw)\
+            .grid(row=2, column=2, columnspan=2, padx=2, sticky="w")
+        tk.Button(tpl_frame, text="+加入", command=self._tpl_add_talking,
+                  bg=S3, fg=TX, font=("Helvetica", 9, "bold"),
+                  relief="flat", bd=0, padx=10, cursor="hand2",
+                  activebackground="#2a2a30").grid(row=2, column=4, padx=(6, 0), sticky="ew")
+
+        # Row 3: 轉場
+        tk.Label(tpl_frame, text="轉場", bg=S2, fg="#ff80ab", font=("Helvetica", 10, "bold"), width=6, anchor="w")\
+            .grid(row=3, column=0, sticky="w", padx=(0, 2), pady=2)
+        tk.Label(tpl_frame, text="共", bg=S2, fg=TX2, font=("Helvetica", 9))\
+            .grid(row=3, column=1, sticky="e")
+        tk.Spinbox(tpl_frame, from_=1, to=20, textvariable=self.tpl_tr_n, **sp_kw)\
+            .grid(row=3, column=2, columnspan=2, padx=2, sticky="w")
+        tk.Button(tpl_frame, text="+加入", command=self._tpl_add_transition,
+                  bg=S3, fg=TX, font=("Helvetica", 9, "bold"),
+                  relief="flat", bd=0, padx=10, cursor="hand2",
+                  activebackground="#2a2a30").grid(row=3, column=4, padx=(6, 0), sticky="ew")
+
+        # Row 4: Chaser
+        tk.Label(tpl_frame, text="Chaser", bg=S2, fg="#ff5252", font=("Helvetica", 10, "bold"), width=6, anchor="w")\
+            .grid(row=4, column=0, sticky="w", padx=(0, 2), pady=2)
+        tk.Label(tpl_frame, text="共", bg=S2, fg=TX2, font=("Helvetica", 9))\
+            .grid(row=4, column=1, sticky="e")
+        tk.Spinbox(tpl_frame, from_=1, to=20, textvariable=self.tpl_ch_n, **sp_kw)\
+            .grid(row=4, column=2, columnspan=2, padx=2, sticky="w")
+        tk.Button(tpl_frame, text="+加入", command=self._tpl_add_chaser,
+                  bg=S3, fg=TX, font=("Helvetica", 9, "bold"),
+                  relief="flat", bd=0, padx=10, cursor="hand2",
+                  activebackground="#2a2a30").grid(row=4, column=4, padx=(6, 0), sticky="ew")
+
+        tpl_frame.grid_columnconfigure(0, weight=0)
+        tpl_frame.grid_columnconfigure(4, weight=1)
+
         tk.Label(inp, text="格式(每行一個項目):\nS01 XXX\nTALKING-1\n轉場_XXX\nChaser~XXX",
                  bg=S2, fg=TX3, font=("Courier New", 9), justify="left",
                  padx=10, pady=8).pack(fill="x", pady=(0, 8))
@@ -737,7 +807,7 @@ class App(tk.Tk):
         self.color_btns = []
         for label, hex_ in TEXT_COLOR_PRESETS:
             btn = tk.Button(color_row, text=label, width=3,
-                            bg=hex_, fg=("#000" if hex_ in ("#ffffff", "#ffeb3b") else "#fff"),
+                            bg=hex_, fg=("#000" if hex_ in ("#ffffff", "#ffff00") else "#fff"),
                             font=("Helvetica", 9, "bold"),
                             relief="flat", bd=0, cursor="hand2",
                             activebackground=hex_,
@@ -938,6 +1008,43 @@ class App(tk.Tk):
         self._render_list()
         self.listbox.selection_set(self.sel_idx)
         save_session(self.items)
+
+    # ────── 快速範本產生器 ──────
+    def _tpl_append(self, lines):
+        """把生成的行 append 到 textarea(自動處理換行 / 刪空行)。"""
+        existing = self.txt.get("1.0", tk.END).rstrip()
+        new_block = "\n".join(lines)
+        combined = (existing + "\n" + new_block) if existing else new_block
+        # 一律刪空行
+        combined = "\n".join(l for l in combined.split("\n") if l.strip())
+        self.txt.delete("1.0", tk.END)
+        self.txt.insert("1.0", combined)
+        self.set_st(f"+ 已加入 {len(lines)} 行,記得按「生成字卡」", "ok")
+
+    def _tpl_add_songs(self):
+        a = self.tpl_s_from.get()
+        b = self.tpl_s_to.get()
+        if a > b: a, b = b, a
+        if b - a > 99:
+            messagebox.showwarning("提示", "範圍太大(>99),請分批")
+            return
+        lines = [f"S{n:02d} " for n in range(a, b + 1)]
+        self._tpl_append(lines)
+
+    def _tpl_add_talking(self):
+        n = self.tpl_tk_n.get()
+        lines = [f"TALKING-{i}" for i in range(1, n + 1)]
+        self._tpl_append(lines)
+
+    def _tpl_add_transition(self):
+        n = self.tpl_tr_n.get()
+        lines = [f"轉場_{i:02d}" for i in range(1, n + 1)]
+        self._tpl_append(lines)
+
+    def _tpl_add_chaser(self):
+        n = self.tpl_ch_n.get()
+        lines = [f"Chaser~" for _ in range(n)]
+        self._tpl_append(lines)
 
     # ────── 生成 ──────
     def generate(self):
