@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -64,60 +64,12 @@ app.on('window-all-closed', () => {
 });
 
 // ────────────────────────────────────────────────────────────────
-// IPC handlers — 取代瀏覽器 ZIP 下載,直接寫到使用者指定的資料夾
+// IPC handlers
+// 註:select-export-folder / write-png / open-folder / app-platform 都拿掉了
+// (renderer 沒呼叫,匯出走瀏覽器 ZIP 下載)。將來改原生 folder export 時再加回。
 // ────────────────────────────────────────────────────────────────
 
-// 記住最後一次使用者透過 dialog 選的資料夾,write-png 只允許寫到這個白名單路徑下
-let allowedExportFolder = null;
-
-ipcMain.handle('select-export-folder', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: '選擇字卡匯出資料夾',
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  if (result.canceled || !result.filePaths.length) return null;
-  allowedExportFolder = path.resolve(result.filePaths[0]);
-  return allowedExportFolder;
-});
-
-ipcMain.handle('write-png', async (event, { folder, filename, dataBase64 }) => {
-  try {
-    if (!allowedExportFolder) {
-      return { ok: false, error: '請先選擇匯出資料夾' };
-    }
-    // 路徑必須在使用者選的資料夾底下,防止 path traversal / 任意寫入
-    const resolvedFolder = path.resolve(folder);
-    if (resolvedFolder !== allowedExportFolder &&
-        !resolvedFolder.startsWith(allowedExportFolder + path.sep)) {
-      return { ok: false, error: '未授權的寫入路徑' };
-    }
-    const buf = Buffer.from(dataBase64, 'base64');
-    // 過 Windows 禁用字、control chars、末尾點/空格(Windows 不允許)
-    const safe = String(filename)
-      .replace(/[\x00-\x1F]/g, '')
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .replace(/[.\s]+$/, '');
-    if (!safe) return { ok: false, error: '檔名為空或全是無效字元' };
-    const fullPath = path.join(resolvedFolder, safe);
-    fs.writeFileSync(fullPath, buf);
-    return { ok: true, path: fullPath };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-});
-
-ipcMain.handle('open-folder', async (event, folder) => {
-  if (!allowedExportFolder) return;
-  const resolved = path.resolve(String(folder));
-  if (resolved !== allowedExportFolder &&
-      !resolved.startsWith(allowedExportFolder + path.sep)) {
-    return;
-  }
-  shell.openPath(resolved);
-});
-
 ipcMain.handle('app-version', () => app.getVersion());
-ipcMain.handle('app-platform', () => process.platform);
 
 // ────────────────────────────────────────────────────────────────
 // Gemini API key — 用 safeStorage 加密(OS keychain:Windows DPAPI / macOS Keychain)
@@ -142,15 +94,17 @@ ipcMain.handle('get-gemini-key', async () => {
 
 ipcMain.handle('set-gemini-key', async (event, key) => {
   try {
+    // 先檢查 keychain 可用性 — 不可用時連 unlink 都不做,
+    // 否則 keychain 暫時失效時 user 觸發清空,過去加密的 key 會永久消失
+    if (!safeStorage.isEncryptionAvailable()) {
+      return { ok: false, error: 'OS keychain 不可用,key 未儲存' };
+    }
     const k = String(key || '').trim();
     const file = geminiKeyPath();
     if (!k) {
       // 清空 — 刪檔(不存空 string,免得有殘檔)
       if (fs.existsSync(file)) fs.unlinkSync(file);
       return { ok: true };
-    }
-    if (!safeStorage.isEncryptionAvailable()) {
-      return { ok: false, error: 'OS keychain 不可用,key 未儲存' };
     }
     const encrypted = safeStorage.encryptString(k);
     fs.writeFileSync(file, encrypted);

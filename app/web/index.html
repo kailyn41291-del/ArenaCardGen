@@ -141,30 +141,53 @@
     // ────────────────────────────────────────────────────────────────
     // Auto-update Tier 1 — 啟動時 fetch GitHub Releases API,有新版顯示 toast
     // ────────────────────────────────────────────────────────────────
-    const APP_VERSION_FALLBACK = '0.3.0';  // 沒 electronAPI 時的 fallback
+    const APP_VERSION_FALLBACK = '0.3.0-beta1';  // 沒 electronAPI 時的 fallback,跟 package.json 對齊
     const RELEASES_API = 'https://api.github.com/repos/kailyn41291-del/ArenaCardGen/releases/latest';
     const DISMISSED_VERSION_KEY = 'arena-cardgen-dismissed-update-version';
+    // Toast / footer 顯示用:tag 已含 v 前綴(例如 v0.3.0)就不要再加,避免 vv0.3.0
+    const formatVersion = (v) => 'v' + String(v || '').replace(/^v/, '');
 
     // semver 比較:'1.2.3-beta1' < '1.2.3'(pre-release tag 比 release 小)
+    // pre tag 也按 . split 並嘗試 numeric 比(beta10 > beta2,而非字串比的 beta10 < beta2)
     function compareVersion(a, b) {
       const norm = (v) => String(v || '').replace(/^v/, '').trim();
+      const splitId = (s) => {
+        // 把 "beta10" 拆 "beta" + 10、把 "beta" 留原樣
+        const m = s.match(/^([a-zA-Z]*)(\d*)$/);
+        if (m && m[2]) return [m[1] || '', parseInt(m[2], 10)];
+        return [s];
+      };
       const splitVer = (v) => {
         const [main, pre] = norm(v).split('-');
         const mainParts = main.split('.').map(n => parseInt(n, 10) || 0);
-        return { main: mainParts, pre: pre || '' };
+        const preParts = pre ? pre.split('.').flatMap(splitId) : [];
+        return { main: mainParts, pre: preParts };
+      };
+      const cmp = (x, y) => {
+        const xn = typeof x === 'number';
+        const yn = typeof y === 'number';
+        if (xn && yn) return x - y;
+        if (xn !== yn) return xn ? -1 : 1; // numeric < string in semver pre
+        return x < y ? -1 : x > y ? 1 : 0;
       };
       const aa = splitVer(a);
       const bb = splitVer(b);
-      const len = Math.max(aa.main.length, bb.main.length);
-      for (let i = 0; i < len; i++) {
+      const mainLen = Math.max(aa.main.length, bb.main.length);
+      for (let i = 0; i < mainLen; i++) {
         const x = aa.main[i] || 0;
         const y = bb.main[i] || 0;
         if (x !== y) return x - y;
       }
       // main 相等:無 pre > 有 pre(release 比 beta 新)
-      if (!aa.pre && bb.pre) return 1;
-      if (aa.pre && !bb.pre) return -1;
-      if (aa.pre !== bb.pre) return aa.pre < bb.pre ? -1 : 1;
+      if (!aa.pre.length && bb.pre.length) return 1;
+      if (aa.pre.length && !bb.pre.length) return -1;
+      const preLen = Math.max(aa.pre.length, bb.pre.length);
+      for (let i = 0; i < preLen; i++) {
+        if (i >= aa.pre.length) return -1;
+        if (i >= bb.pre.length) return 1;
+        const c = cmp(aa.pre[i], bb.pre[i]);
+        if (c !== 0) return c;
+      }
       return 0;
     }
 
@@ -172,7 +195,7 @@
     // 但比例必須一致,否則預覽跟匯出 PNG 字級會 drift。
     // 卡片寬高比 16:9 → height/width = 56.25/100 = 0.5625
     const AVAIL_W_RATIO = 0.88;   // 水平 padding 各 6%
-    const AVAIL_H_RATIO = 0.835;  // 對應卡片高的比例(實際 = 47/56.25,沿用 Card 既有設定)
+    const AVAIL_H_RATIO = 47 / 56.25;  // ≈ 0.8356,對應 Card 既有 47cqw / 卡片高 56.25cqw
 
     // 字級 layout 計算 — Card / Canvas 共用,確保預覽跟匯出 PNG 一致
     // 輸入 availW / availH 用任意單位(cqw 或 px),輸出字級用同單位
@@ -195,18 +218,20 @@
       const widthConstrainedBase = titleRows > 0 ? availW / maxLineWidth : Infinity;
       const labelWidthBase = hasLabel ? (availW / labelWidthVisual) / 1.5 : Infinity;
 
-      const baseSize = Math.max(8, Math.min(heightConstrainedBase, widthConstrainedBase, labelWidthBase));
+      let baseSize = Math.max(8, Math.min(heightConstrainedBase, widthConstrainedBase, labelWidthBase));
 
       // 每行獨立放大(短行不被長行拖累),封頂 baseSize × 1.4
       const perLineSize = lineWidths.map(lw => Math.min(availW / lw, baseSize * 1.4));
 
       // 安全閥:逐行放大後若總高度超出可用高度,等比縮回
+      // N-1:label-only 卡(perLineSize 空)也要 shrink labelFontSize,否則撞上下緣
       const labelStackHeight = hasLabel ? baseSize * 1.5 * 1.06 : 0;
       const titleStackHeight = perLineSize.reduce((s, sz) => s + sz * 1.05, 0);
       const stackHeight = labelStackHeight + titleStackHeight;
       if (stackHeight > availH) {
         const shrink = availH / stackHeight;
         for (let i = 0; i < perLineSize.length; i++) perLineSize[i] *= shrink;
+        if (hasLabel) baseSize *= shrink; // label 字級跟著縮(labelFontSize = baseSize * 1.5)
       }
 
       return {
@@ -558,20 +583,21 @@
     // 邏輯:對每張新卡,找舊卡中第一個內容相同且未被 claim 的 → 繼承它的 override。
     // 解決問題:重複內容(兩個 Chaser~)reorder 後 colorOverride 不會跑到別張。
     function realignOverrides(prevText, newText, prevOverrides) {
-      if (!prevOverrides || Object.keys(prevOverrides).length === 0) return {};
+      const safe = prevOverrides || {};
       const prevParsed = parseSetlist(prevText);
       const prevKeys = buildCardKeys(prevParsed);
       const newParsed = parseSetlist(newText);
       const newKeys = buildCardKeys(newParsed);
+      const prevBaseKeys = prevParsed.map(cardKeyBase);
       const claimed = new Set();
       const result = {};
       newParsed.forEach((nc, i) => {
+        const targetBase = cardKeyBase(nc);
         for (let j = 0; j < prevParsed.length; j++) {
           if (claimed.has(j)) continue;
-          const pc = prevParsed[j];
-          if (pc.type === nc.type && pc.label === nc.label && pc.title === nc.title) {
+          if (prevBaseKeys[j] === targetBase) {
             claimed.add(j);
-            const ov = prevOverrides[prevKeys[j]];
+            const ov = safe[prevKeys[j]];
             if (ov) result[newKeys[i]] = ov;
             return;
           }
@@ -662,14 +688,29 @@
       const availW = w * AVAIL_W_RATIO;
       const availH = h * AVAIL_H_RATIO;
 
-      const { labelFontSize, perLineSize } = computeStackLayout({
+      const layout = computeStackLayout({
         titleLines, labelText, hasLabel: showLabel, availW, availH,
       });
+      let labelFontSize = layout.labelFontSize;
+      const perLineSize = [...layout.perLineSize];
 
       const fontFamily = '900 {SIZE}px Inter, "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
       ctx.fillStyle = color;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
+
+      // S-4:用 measureText 真實量測校正字級。CHAR_WIDTH_LATIN 常數對 W/M 等寬字母仍可能低估,
+      // 加上 manualLines 是 user 自由輸入(不受 chooseBestLayout 限制),沒這層校正會字超出 1920 寬從中央外溢
+      if (showLabel) {
+        ctx.font = fontFamily.replace('{SIZE}', labelFontSize.toFixed(0));
+        const measured = ctx.measureText(labelText.toUpperCase()).width;
+        if (measured > availW) labelFontSize *= availW / measured;
+      }
+      for (let i = 0; i < titleLines.length; i++) {
+        ctx.font = fontFamily.replace('{SIZE}', perLineSize[i].toFixed(0));
+        const measured = ctx.measureText(titleLines[i].toUpperCase()).width;
+        if (measured > availW) perLineSize[i] *= availW / measured;
+      }
 
       const labelHeight = showLabel ? labelFontSize : 0;
       const labelGap = showLabel ? labelFontSize * 0.06 : 0;
@@ -686,8 +727,7 @@
       }
 
       for (let i = 0; i < titleLines.length; i++) {
-        const sz = perLineSize[i];
-        ctx.font = fontFamily.replace('{SIZE}', sz.toFixed(0));
+        ctx.font = fontFamily.replace('{SIZE}', perLineSize[i].toFixed(0));
         ctx.fillText(titleLines[i].toUpperCase(), w / 2, y);
         y += titleHeights[i];
       }
@@ -1026,9 +1066,11 @@ Chaser
       const [useOverride, setUseOverride] = useState(!!card.colorOverride);
       const [linesDraft, setLinesDraft] = useState(initialDraft);
       const hasLineOverride = !!card.manualLines;
+      const skipSyncRef = useRef(true); // 切卡片時跳過第一次 sync,避免把 colorOverride: null 寫進 store
 
       // 切換到別張卡 → 重新初始化
       useEffect(() => {
+        skipSyncRef.current = true;
         setType(card.type);
         setColor(card.colorOverride || '#FF0080');
         setUseOverride(!!card.colorOverride);
@@ -1037,10 +1079,17 @@ Chaser
 
       // 同步 type / color override 到 store(linesDraft 走另一條 onChange)
       useEffect(() => {
+        if (skipSyncRef.current) {
+          skipSyncRef.current = false;
+          return;
+        }
+        // 只有真的跟 card 既有值不同才 update,避免把 colorOverride: null 寫進原本沒這欄的卡
+        const nextColorOverride = useOverride ? color : null;
+        if (type === card.type && (card.colorOverride || null) === nextColorOverride) return;
         onUpdate(idx, {
           ...card,
           type,
-          colorOverride: useOverride ? color : null,
+          colorOverride: nextColorOverride,
         });
       }, [type, color, useOverride]);
 
@@ -1301,10 +1350,18 @@ Chaser
     // ────────────────────────────────────────────────────────────────
     // Settings Modal
     // ────────────────────────────────────────────────────────────────
-    function SettingsModal({ open, onClose, settings, setSettings }) {
+    function SettingsModal({ open, onClose, settings, setSettings, appVersion, onCheckUpdate }) {
       if (!open) return null;
 
       const set = (k, v) => setSettings(s => ({ ...s, [k]: v }));
+      const [checkState, setCheckState] = useState(''); // '', 'checking', 'latest', 'newer:vX.Y.Z', 'error'
+
+      const handleCheck = async () => {
+        if (!onCheckUpdate) return;
+        setCheckState('checking');
+        const r = await onCheckUpdate();
+        setCheckState(r);
+      };
 
       return (
         <>
@@ -1374,9 +1431,19 @@ Chaser
                   之後若實作再加回來,設定該長怎樣到時再決定。 */}
             </div>
 
-            <div className="border-t border-slate-800/60 px-6 py-3 text-[11px] text-slate-600 flex justify-between">
-              <span>v0.3.0-prototype</span>
-              <span>shortcuts: Ctrl+Z / Delete / Alt+↑↓</span>
+            <div className="border-t border-slate-800/60 px-6 py-3 flex items-center justify-between gap-3">
+              <button
+                onClick={handleCheck}
+                disabled={checkState === 'checking'}
+                className="text-[11px] px-2.5 py-1 rounded bg-slate-800/60 hover:bg-slate-700/60 text-slate-300 transition disabled:opacity-50"
+                title="重新檢查 GitHub 上有沒有新版"
+              >
+                {checkState === 'checking' ? '檢查中…' : '檢查更新'}
+              </button>
+              {checkState === 'latest' && <span className="text-[11px] text-emerald-400/80">已是最新</span>}
+              {checkState.startsWith('newer:') && <span className="text-[11px] text-[#33ff85]">{checkState.slice(6)} 可下載</span>}
+              {checkState === 'error' && <span className="text-[11px] text-amber-400/80">檢查失敗</span>}
+              <span className="text-[11px] text-slate-600 ml-auto">{formatVersion(appVersion)}</span>
             </div>
           </div>
         </>
@@ -1403,7 +1470,47 @@ Chaser
     // ────────────────────────────────────────────────────────────────
     // Rundown Parser Modal
     // ────────────────────────────────────────────────────────────────
-    function ParserModal({ open, onClose, onImport, geminiApiKey, setGeminiApiKey }) {
+    function GeminiKeyRow({ geminiApiKey, setGeminiApiKey, geminiKeyError }) {
+      const [draft, setDraft] = useState(geminiApiKey || '');
+      useEffect(() => { setDraft(geminiApiKey || ''); }, [geminiApiKey]);
+      const dirty = draft !== (geminiApiKey || '');
+      const commit = () => { if (dirty) setGeminiApiKey(draft); };
+      return (
+        <div className="border-t border-slate-800/60 px-6 py-2.5 bg-slate-900/40 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500 shrink-0">🧠 Gemini API key</span>
+            <input
+              type="password"
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); e.target.blur(); } }}
+              placeholder="貼入啟用智慧解析(免費 1500 次/天)"
+              className="flex-1 mono px-3 py-1.5 rounded bg-slate-800/60 border border-slate-700 focus:border-[#00ff66]/60 focus:outline-none placeholder-slate-600 text-slate-100"
+            />
+            {!dirty && draft && !geminiKeyError && (
+              <span className="text-[10px] text-emerald-500/80 shrink-0">✓ 已設定</span>
+            )}
+            {dirty && (
+              <span className="text-[10px] text-amber-400/80 shrink-0">未儲存(離開欄位或按 Enter)</span>
+            )}
+            <a
+              href="https://aistudio.google.com/apikey"
+              onClick={e => { e.preventDefault(); window.open('https://aistudio.google.com/apikey', '_blank'); }}
+              className="text-[#33ff85] hover:underline shrink-0"
+              title="免費取得 Gemini API key"
+            >
+              取得 key →
+            </a>
+          </div>
+          {geminiKeyError && (
+            <div className="mt-1.5 text-[11px] text-red-400">⚠ {geminiKeyError}</div>
+          )}
+        </div>
+      );
+    }
+
+    function ParserModal({ open, onClose, onImport, geminiApiKey, setGeminiApiKey, geminiKeyError }) {
       const [raw, setRaw] = useState('');
       const [result, setResult] = useState('');
       const [lang, setLang] = useState('繁');
@@ -1653,28 +1760,13 @@ Chaser
                 </button>
               </div>
 
-              {/* Gemini API key 列(常駐底部)*/}
-              <div className="border-t border-slate-800/60 px-6 py-2.5 bg-slate-900/40 flex items-center gap-2 text-xs">
-                <span className="text-slate-500 shrink-0">🧠 Gemini API key</span>
-                <input
-                  type="password"
-                  value={geminiApiKey || ''}
-                  onChange={e => setGeminiApiKey(e.target.value.trim())}
-                  placeholder="貼入啟用智慧解析(免費 1500 次/天)"
-                  className="flex-1 mono px-3 py-1.5 rounded bg-slate-800/60 border border-slate-700 focus:border-[#00ff66]/60 focus:outline-none placeholder-slate-600 text-slate-100"
-                />
-                {geminiApiKey && (
-                  <span className="text-[10px] text-emerald-500/80 shrink-0">✓ 已設定</span>
-                )}
-                <a
-                  href="https://aistudio.google.com/apikey"
-                  onClick={e => { e.preventDefault(); window.open('https://aistudio.google.com/apikey', '_blank'); }}
-                  className="text-[#33ff85] hover:underline shrink-0"
-                  title="免費取得 Gemini API key"
-                >
-                  取得 key →
-                </a>
-              </div>
+              {/* Gemini API key 列(常駐底部)
+                  S-5:用 local draft + onBlur 才寫進 safeStorage,避免每字元 fire 一次 keychain encrypt + disk write */}
+              <GeminiKeyRow
+                geminiApiKey={geminiApiKey}
+                setGeminiApiKey={setGeminiApiKey}
+                geminiKeyError={geminiKeyError}
+              />
             </div>
           </div>
         </>
@@ -1754,13 +1846,19 @@ Chaser
     function ExportProgress({ state, onClose }) {
       if (!state) return null;
       const pct = state.total > 0 ? Math.round((state.current / state.total) * 100) : 0;
+      const errors = (state.errors || []);
+      const hasErrors = errors.length > 0;
       return (
         <>
           <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-40" />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
             <div className="bg-[#0c0c10] border border-slate-800/80 rounded-2xl w-full max-w-md shadow-2xl">
               <div className="px-6 py-5 border-b border-slate-800/60 flex items-center justify-between">
-                <h2 className="text-lg font-semibold">{state.complete ? '✓ 匯出完成' : '匯出中'}</h2>
+                <h2 className="text-lg font-semibold">
+                  {state.complete
+                    ? (hasErrors ? `⚠ 匯出完成(${errors.length} 張失敗)` : '✓ 匯出完成')
+                    : '匯出中'}
+                </h2>
                 {state.complete && (
                   <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
                     <Icon.close className="w-4 h-4 text-slate-400" />
@@ -1770,24 +1868,38 @@ Chaser
               <div className="p-6 space-y-4">
                 <div className="text-sm text-slate-300">
                   {state.complete
-                    ? `已產出 ZIP(${state.total} 張字卡)— 應該已自動下載`
+                    ? `已產出 ZIP(${state.total - errors.length} / ${state.total} 張字卡)— 應該已自動下載`
                     : `正在渲染 ${state.current} / ${state.total}…`}
                 </div>
                 <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                   <div
-                    className="h-full bg-[#00ff66] transition-all duration-200"
+                    className={`h-full transition-all duration-200 ${hasErrors ? 'bg-amber-500' : 'bg-[#00ff66]'}`}
                     style={{ width: `${state.complete ? 100 : pct}%` }}
                   />
                 </div>
                 {state.currentFile && !state.complete && (
                   <div className="mono text-xs text-slate-500 truncate">{state.currentFile}</div>
                 )}
+                {state.complete && hasErrors && (
+                  <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 max-h-48 overflow-auto">
+                    <div className="text-amber-300 text-xs font-semibold mb-2">這些字卡渲染失敗,沒進 ZIP:</div>
+                    <ul className="space-y-1 text-[11px] text-amber-200/90 mono">
+                      {errors.map((e, i) => (
+                        <li key={i}>#{e.idx} {e.name} — {e.error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {state.complete && (
                   <button
                     onClick={onClose}
-                    className="w-full py-3 rounded-xl bg-[#00ff66] hover:bg-[#33ff85] text-black font-semibold transition shadow-lg shadow-[#00ff66]/30"
+                    className={`w-full py-3 rounded-xl font-semibold transition shadow-lg ${
+                      hasErrors
+                        ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30'
+                        : 'bg-[#00ff66] hover:bg-[#33ff85] text-black shadow-[#00ff66]/30'
+                    }`}
                   >
-                    完成
+                    {hasErrors ? '我了解,關閉' : '完成'}
                   </button>
                 )}
               </div>
@@ -1804,7 +1916,7 @@ Chaser
       if (!visible) return null;
       return (
         <div className="fixed bottom-12 right-6 z-30 px-4 py-3 rounded-xl bg-[#0c0c10] border border-[#00ff66]/60 glow-pink-soft flex items-center gap-3 animate-in">
-          <div className="text-sm">v{version} available</div>
+          <div className="text-sm">{formatVersion(version)} available</div>
           <button onClick={onDownload} className="text-[#33ff85] hover:text-[#99ffaa] text-sm font-medium">
             Download
           </button>
@@ -1948,6 +2060,22 @@ Chaser~阿明
       // Gemini API key — 用 OS keychain (Electron safeStorage) 加密存,不落 localStorage
       // web fallback:沒 electronAPI 時用 sessionStorage(僅當前分頁,關掉就清)
       const [geminiApiKey, setGeminiApiKeyState] = useState('');
+      const [geminiKeyError, setGeminiKeyError] = useState('');
+
+      // 把 legacy plaintext key 從 localStorage settings 移除(B3 安全:migration 後不該留)
+      const purgeLegacyKey = useCallback(() => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return;
+          const parsed = JSON.parse(raw);
+          if (parsed.settings && 'geminiApiKey' in parsed.settings) {
+            const { geminiApiKey: _drop, ...rest } = parsed.settings;
+            parsed.settings = rest;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+          }
+        } catch {}
+      }, []);
+
       useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -1961,54 +2089,106 @@ Chaser~阿明
           // 2. Migration:若舊版 localStorage 還有 geminiApiKey,搬到 safeStorage 再清掉
           const legacyKey = (initial.settings && initial.settings.geminiApiKey) || '';
           if (legacyKey && !stored) {
-            stored = legacyKey;
+            // 嘗試 migrate;失敗就保留 legacy 在 memory(下次 user 修改時再試)
             if (window.electronAPI?.setGeminiKey) {
-              try { await window.electronAPI.setGeminiKey(legacyKey); } catch {}
+              try {
+                const r = await window.electronAPI.setGeminiKey(legacyKey);
+                if (r && r.ok) {
+                  stored = legacyKey;
+                  purgeLegacyKey();  // migrate 成功才清 legacy
+                } else {
+                  console.warn('[migration] safeStorage 不可用,key 仍在 localStorage:', r && r.error);
+                  stored = legacyKey;
+                }
+              } catch (err) {
+                console.warn('[migration] failed:', err);
+                stored = legacyKey;
+              }
             } else {
               sessionStorage.setItem('gemini-key', legacyKey);
+              stored = legacyKey;
+              purgeLegacyKey();
             }
+          } else if (legacyKey && stored) {
+            // safeStorage 已有 key,localStorage legacy 一定要清掉
+            purgeLegacyKey();
           }
           if (!cancelled) setGeminiApiKeyState(stored);
         })();
         return () => { cancelled = true; };
-      }, []);
+      }, [purgeLegacyKey]);
 
       const setGeminiApiKey = useCallback(async (key) => {
         const k = String(key || '').trim();
         setGeminiApiKeyState(k);
+        setGeminiKeyError('');
         if (window.electronAPI?.setGeminiKey) {
-          try { await window.electronAPI.setGeminiKey(k); } catch (err) { console.error('setGeminiKey:', err); }
+          try {
+            const r = await window.electronAPI.setGeminiKey(k);
+            if (r && !r.ok) {
+              // OS keychain 不可用(Linux 沒 secret service 等),別讓 user 以為 key 已存
+              setGeminiKeyError(r.error || 'key 未儲存');
+              console.warn('[setGeminiKey]', r.error);
+            }
+          } catch (err) {
+            setGeminiKeyError(err.message || 'IPC 失敗');
+            console.error('setGeminiKey:', err);
+          }
         } else {
           if (k) sessionStorage.setItem('gemini-key', k);
           else sessionStorage.removeItem('gemini-key');
         }
       }, []);
 
+      // App version 從 Electron IPC 讀(動態,跟 package.json 對齊),fallback 給 web 環境用
+      const [appVersion, setAppVersion] = useState(APP_VERSION_FALLBACK);
+      useEffect(() => {
+        if (window.electronAPI?.appVersion) {
+          window.electronAPI.appVersion().then(v => v && setAppVersion(v)).catch(() => {});
+        }
+      }, []);
+
       // Auto-update Tier 1:啟動時檢查 GitHub Releases,有新版顯示 toast
       // updateInfo = { version, url } | null;dismissed 後本機記住版本號不再煩
       const [updateInfo, setUpdateInfo] = useState(null);
+
+      // 真正執行檢查的函式 — 啟動時跑、SettingsModal 也可重複呼叫
+      const checkForUpdates = useCallback(async (opts = {}) => {
+        const { ignoreDismissed = false } = opts;
+        try {
+          // 加 5 秒 timeout 避免離線環境 hang
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 5000);
+          const r = await fetch(RELEASES_API, {
+            headers: { 'Accept': 'application/vnd.github+json' },
+            signal: ctrl.signal,
+          });
+          clearTimeout(timer);
+          if (!r.ok) return 'error';
+          const release = await r.json();
+          const latest = release && release.tag_name;
+          if (!latest) return 'error';
+          const cmp = compareVersion(latest, appVersion);
+          if (cmp <= 0) return 'latest';
+          const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY) || '';
+          if (!ignoreDismissed && latest === dismissed) return 'latest'; // dismiss 過就裝 latest
+          setUpdateInfo({ version: latest, url: release.html_url });
+          return 'newer:' + formatVersion(latest);
+        } catch {
+          return 'error';
+        }
+      }, [appVersion]);
+
+      // 啟動時自動檢查(只有 dismiss 過 + 不忽略 dismiss 才不顯示 toast)
       useEffect(() => {
         let cancelled = false;
         (async () => {
-          try {
-            const currentVersion = window.electronAPI?.appVersion
-              ? await window.electronAPI.appVersion()
-              : APP_VERSION_FALLBACK;
-            const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY) || '';
-            const r = await fetch(RELEASES_API, { headers: { 'Accept': 'application/vnd.github+json' } });
-            if (!r.ok) return;
-            const release = await r.json();
-            const latest = release && release.tag_name;
-            if (!latest || cancelled) return;
-            if (compareVersion(latest, currentVersion) > 0 && latest !== dismissed) {
-              setUpdateInfo({ version: latest, url: release.html_url });
-            }
-          } catch {
-            // 網路失敗、API 限流、無網路:靜默,不騷擾使用者
-          }
+          await new Promise(r => setTimeout(r, 0)); // 等 appVersion useEffect 一輪
+          if (cancelled) return;
+          checkForUpdates({ ignoreDismissed: false });
         })();
         return () => { cancelled = true; };
-      }, []);
+      }, [checkForUpdates]);
 
       const dismissUpdate = useCallback(() => {
         if (updateInfo) localStorage.setItem(DISMISSED_VERSION_KEY, updateInfo.version);
@@ -2017,11 +2197,11 @@ Chaser~阿明
 
       const downloadUpdate = useCallback(() => {
         if (!updateInfo) return;
-        if (window.electronAPI && updateInfo.url) {
+        if (updateInfo.url) {
           window.open(updateInfo.url, '_blank');
-        } else if (updateInfo.url) {
-          window.location.href = updateInfo.url;
         }
+        // 點下載後就拿掉 toast 視覺(但不寫進 dismissed,改主意可從 SettingsModal「檢查更新」再 trigger)
+        setUpdateInfo(null);
       }, [updateInfo]);
 
       // ────── Quick template helpers ──────
@@ -2123,8 +2303,10 @@ Chaser~阿明
         historyIdxRef.current -= 1;
         const snap = historyRef.current[historyIdxRef.current];
         skipNextHistoryRef.current = true;
+        // 走 realign 而非直接 setOverrides:若 cardKey 規則將來變動,
+        // 歷史 snapshot 用舊規則的 keys 仍能對齊到新 cards 的 keys
+        setOverrides(() => realignOverrides(text, snap.text, snap.overrides));
         setText(snap.text);
-        setOverrides(snap.overrides);
         setSavedAt('已 undo');
       };
       const redo = () => {
@@ -2132,8 +2314,8 @@ Chaser~阿明
         historyIdxRef.current += 1;
         const snap = historyRef.current[historyIdxRef.current];
         skipNextHistoryRef.current = true;
+        setOverrides(() => realignOverrides(text, snap.text, snap.overrides));
         setText(snap.text);
-        setOverrides(snap.overrides);
         setSavedAt('已 redo');
       };
 
@@ -2173,7 +2355,7 @@ Chaser~阿明
         newLines.splice(targetLineIdx, 0, fromLine);
         const newText = newLines.join('\n');
         // 重複內容卡 reorder 後,occurrence index 順序變,override 要跟著卡片走才不會跑到別張
-        setOverrides(realignOverrides(text, newText, overrides));
+        setOverrides(prev => realignOverrides(text, newText, prev));
         setText(newText);
         // 若移到的卡片類型被 filter 過濾掉,目標卡會看不見 → 清 selection 比較不困惑
         const movedCard = cards[fromIdx];
@@ -2284,7 +2466,7 @@ Chaser~阿明
         if (i >= realIdxToLine.length) return;
         const newLines = lines.filter((_, idx) => idx !== realIdxToLine[i]);
         const newText = newLines.join('\n');
-        setOverrides(realignOverrides(text, newText, overrides));
+        setOverrides(prev => realignOverrides(text, newText, prev));
         setText(newText);
         setSelectedIds(new Set());
       };
@@ -2299,7 +2481,7 @@ Chaser~阿明
           const newText = newLines.join('\n');
           // 複製的新卡會 claim 第一個匹配,本來那張變成「第二個」拿到原 override —
           // realign 確保 override 跟著「原本那張」(claim 順序),複製出的新卡是空的
-          setOverrides(realignOverrides(text, newText, overrides));
+          setOverrides(prev => realignOverrides(text, newText, prev));
           setText(newText);
         }
       };
@@ -2635,7 +2817,7 @@ Chaser~阿明
               <span className="text-slate-700">|</span>
               <span>fonts: <span className={fontsReady ? 'text-emerald-500' : 'text-amber-400'}>{fontsReady ? 'ready' : 'loading'}</span></span>
               <span className="text-slate-700">|</span>
-              <span>v0.3.0-prototype</span>
+              <span>{formatVersion(appVersion)}</span>
             </div>
           </footer>
 
@@ -2645,6 +2827,8 @@ Chaser~阿明
             onClose={() => setShowSettings(false)}
             settings={settings}
             setSettings={setSettings}
+            appVersion={appVersion}
+            onCheckUpdate={() => checkForUpdates({ ignoreDismissed: true })}
           />
           <ParserModal
             open={showParser}
@@ -2652,6 +2836,7 @@ Chaser~阿明
             onImport={(t) => setText(t)}
             geminiApiKey={geminiApiKey}
             setGeminiApiKey={setGeminiApiKey}
+            geminiKeyError={geminiKeyError}
           />
           <ExportChecklist
             open={showChecklist}
@@ -2660,12 +2845,14 @@ Chaser~阿明
             onClose={() => setShowChecklist(false)}
             onConfirm={async () => {
               setShowChecklist(false);
-              setExportState({ current: 0, total: cards.length, currentFile: '', complete: false });
+              setExportState({ current: 0, total: cards.length, currentFile: '', complete: false, errors: [] });
               try {
-                await exportAllToZip(cards, settings, (current, total, currentFile) => {
-                  setExportState({ current, total, currentFile, complete: false });
+                const fileEntries = await exportAllToZip(cards, settings, (current, total, currentFile) => {
+                  setExportState(s => ({ ...(s || {}), current, total, currentFile, complete: false }));
                 });
-                setExportState(s => ({ ...s, complete: true }));
+                // 標記哪些卡渲染失敗(B-1:不能 silent dropped,VJ 在演唱會少 1 張字卡 = LIVE 災難)
+                const errors = (fileEntries || []).filter(e => e.error);
+                setExportState(s => ({ ...s, complete: true, errors }));
               } catch (err) {
                 console.error(err);
                 alert('匯出失敗:' + err.message);
