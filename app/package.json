@@ -1,0 +1,65 @@
+{
+  "name": "arena-card-gen",
+  "version": "0.3.0-beta1",
+  "description": "演唱會字卡生成器 — 把雜亂 RD 變成 1920×1080 PNG 字卡",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build": "electron-builder -mw"
+  },
+  "author": "phang + kailyn41291-del",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.arenacardgen.app",
+    "productName": "Arena Card Generator",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "web/**/*",
+      "../assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../assets",
+        "to": "assets"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "../assets/logo-icon.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "../assets/logo-icon.png",
+      "category": "public.app-category.graphics-design"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}
