@@ -92,7 +92,12 @@ ipcMain.handle('write-png', async (event, { folder, filename, dataBase64 }) => {
       return { ok: false, error: '未授權的寫入路徑' };
     }
     const buf = Buffer.from(dataBase64, 'base64');
-    const safe = String(filename).replace(/[\\/:*?"<>|]/g, '_');
+    // 過 Windows 禁用字、control chars、末尾點/空格(Windows 不允許)
+    const safe = String(filename)
+      .replace(/[\x00-\x1F]/g, '')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/[.\s]+$/, '');
+    if (!safe) return { ok: false, error: '檔名為空或全是無效字元' };
     const fullPath = path.join(resolvedFolder, safe);
     fs.writeFileSync(fullPath, buf);
     return { ok: true, path: fullPath };

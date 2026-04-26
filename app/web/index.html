@@ -138,6 +138,56 @@
     // (0.55 會低估導致字級算太大、字撞框)。chooseBestLayout / Card / Canvas 三處共用。
     const CHAR_WIDTH_LATIN = 0.65;
 
+    // 卡片可用區域比例(扣 padding 後)。Card 元件用 cqw 單位、Canvas 用 px,
+    // 但比例必須一致,否則預覽跟匯出 PNG 字級會 drift。
+    // 卡片寬高比 16:9 → height/width = 56.25/100 = 0.5625
+    const AVAIL_W_RATIO = 0.88;   // 水平 padding 各 6%
+    const AVAIL_H_RATIO = 0.835;  // 對應卡片高的比例(實際 = 47/56.25,沿用 Card 既有設定)
+
+    // 字級 layout 計算 — Card / Canvas 共用,確保預覽跟匯出 PNG 一致
+    // 輸入 availW / availH 用任意單位(cqw 或 px),輸出字級用同單位
+    function computeStackLayout({ titleLines, labelText, hasLabel, availW, availH }) {
+      const lineVisualWidth = (l) => {
+        let w = 0;
+        for (const ch of (l || '')) w += /[一-鿿]/.test(ch) ? 1 : CHAR_WIDTH_LATIN;
+        return Math.max(w, 1);
+      };
+
+      const labelMultiplier = hasLabel ? 1.5 : 0;
+      const titleRows = Math.max(titleLines.length, 0);
+      const totalRowFactor = labelMultiplier + titleRows + Math.max(titleRows - 1, 0) * 0.1;
+
+      const lineWidths = titleLines.map(lineVisualWidth);
+      const maxLineWidth = Math.max(...lineWidths, 1);
+      const labelWidthVisual = lineVisualWidth(labelText) || 1;
+
+      const heightConstrainedBase = totalRowFactor > 0 ? availH / totalRowFactor : availH;
+      const widthConstrainedBase = titleRows > 0 ? availW / maxLineWidth : Infinity;
+      const labelWidthBase = hasLabel ? (availW / labelWidthVisual) / 1.5 : Infinity;
+
+      const baseSize = Math.max(8, Math.min(heightConstrainedBase, widthConstrainedBase, labelWidthBase));
+
+      // 每行獨立放大(短行不被長行拖累),封頂 baseSize × 1.4
+      const perLineSize = lineWidths.map(lw => Math.min(availW / lw, baseSize * 1.4));
+
+      // 安全閥:逐行放大後若總高度超出可用高度,等比縮回
+      const labelStackHeight = hasLabel ? baseSize * 1.5 * 1.06 : 0;
+      const titleStackHeight = perLineSize.reduce((s, sz) => s + sz * 1.05, 0);
+      const stackHeight = labelStackHeight + titleStackHeight;
+      if (stackHeight > availH) {
+        const shrink = availH / stackHeight;
+        for (let i = 0; i < perLineSize.length; i++) perLineSize[i] *= shrink;
+      }
+
+      return {
+        baseSize,
+        labelFontSize: baseSize * 1.5,
+        perLineSize,
+        lineWidths,
+        maxLineWidth,
+      };
+    }
+
     // ────────────────────────────────────────────────────────────────
     // 清理 title:剝括號、重複 SONG 編號、舞台關鍵字、裝飾符號
     // ────────────────────────────────────────────────────────────────
@@ -460,8 +510,19 @@
 
     // 內容導向的 stable key — 跨 reorder 不會跑掉
     // 用 parsed values(type/label/title)組成,override 不影響 key
-    function cardKey(card) {
-      return `${card.type || 'x'}::${card.label || ''}::${card.title || ''}`;
+    // cardKey:type+label+title 作 base,加上 occurrence index 區分重複內容(例如多個 Chaser~)
+    // 注意:用 ?? 而非 || 讓空字串("空白卡")不被當成 falsy 而合併進別的 key
+    function cardKeyBase(card) {
+      return `${card.type ?? 'x'}::${card.label ?? ''}::${card.title ?? ''}`;
+    }
+    function buildCardKeys(cards) {
+      const seen = new Map();
+      return cards.map(c => {
+        const base = cardKeyBase(c);
+        const n = (seen.get(base) || 0) + 1;
+        seen.set(base, n);
+        return `${base}::${n}`;
+      });
     }
 
     // localStorage persistence — F5 不會掉資料
@@ -536,45 +597,13 @@
       const color = card.colorOverride
         || (settings.useTypeColors ? (TYPE_HEX[card.type] || '#FFFFFF') : (settings.textColor || '#FFFFFF'));
 
-      const padX = w * 0.04;
-      const padY = h * 0.05;
-      const availW = w - padX * 2;
-      const availH = h - padY * 2;
+      // padding 比例跟 Card 元件對齊(AVAIL_W_RATIO / AVAIL_H_RATIO),確保預覽跟匯出 PNG 一致
+      const availW = w * AVAIL_W_RATIO;
+      const availH = h * AVAIL_H_RATIO;
 
-      // 字級計算 — 跟 Card 元件邏輯保持一致(每行獨立字級 + 高度安全閥)
-      const lineVisualWidth = (l) => {
-        let v = 0;
-        for (const ch of l) v += /[一-鿿]/.test(ch) ? 1 : CHAR_WIDTH_LATIN;
-        return Math.max(v, 1);
-      };
-
-      const labelMultiplier = showLabel ? 1.5 : 0;
-      const titleRows = Math.max(titleLines.length, 0);
-      const totalRowFactor = labelMultiplier + titleRows + Math.max(titleRows - 1, 0) * 0.1;
-
-      const lineWidths = titleLines.map(lineVisualWidth);
-      const maxLineWidth = Math.max(...lineWidths, 1);
-      const labelWidthVisual = lineVisualWidth(labelText) || 1;
-
-      const heightConstrainedBase = totalRowFactor > 0 ? availH / totalRowFactor : availH;
-      const widthConstrainedBase = titleRows > 0 ? availW / maxLineWidth : Infinity;
-      const labelWidthBase = (availW / labelWidthVisual) / 1.5;
-
-      const baseSize = Math.max(8, Math.min(heightConstrainedBase, widthConstrainedBase, labelWidthBase));
-
-      // 每行獨立放大(短行不被長行拖累),封頂 baseSize × 1.4
-      const perLineSize = lineWidths.map(lw => Math.min(availW / lw, baseSize * 1.4));
-
-      // 安全閥:逐行放大後若總高度超出可用高度,等比縮回
-      const labelStackHeight = showLabel ? baseSize * 1.5 * (1 + 0.06) : 0;
-      const titleStackHeight = perLineSize.reduce((s, sz) => s + sz * 1.05, 0);
-      const stackHeight = labelStackHeight + titleStackHeight;
-      if (stackHeight > availH) {
-        const shrink = availH / stackHeight;
-        for (let i = 0; i < perLineSize.length; i++) perLineSize[i] *= shrink;
-      }
-
-      const labelFontSize = baseSize * 1.5;
+      const { labelFontSize, perLineSize } = computeStackLayout({
+        titleLines, labelText, hasLabel: showLabel, availW, availH,
+      });
 
       const fontFamily = '900 {SIZE}px Inter, "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
       ctx.fillStyle = color;
@@ -606,8 +635,14 @@
     }
 
     // 安全檔名(白名單:中文 + 英數 + _ - ~ 空格)
+    // 額外:過 control chars (U+0000-001F)、剝末尾的點/空格 (Windows 不允許)
     function safeFilename(s) {
-      return (s || '').replace(/[^\w一-鿿~\- ]/g, '').trim().replace(/\s+/g, '_');
+      return (s || '')
+        .replace(/[\x00-\x1F]/g, '')
+        .replace(/[^\w一-鿿~\- ]/g, '')
+        .trim()
+        .replace(/\s+/g, '_')
+        .replace(/[.\s]+$/, '');
     }
 
     function buildFilename(card, idx) {
@@ -627,11 +662,19 @@
 
       for (let i = 0; i < cards.length; i++) {
         const c = cards[i];
-        const canvas = renderCardToCanvas(c, settings);
-        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
         const fname = buildFilename(c, i);
-        zip.file(fname, blob);
-        fileEntries.push({ idx: i + 1, total: cards.length, name: fname });
+        try {
+          const canvas = renderCardToCanvas(c, settings);
+          const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob 回傳 null')), 'image/png');
+          });
+          zip.file(fname, blob);
+          fileEntries.push({ idx: i + 1, total: cards.length, name: fname });
+        } catch (err) {
+          // 渲染失敗(canvas tainted、記憶體不足、字型問題)— 不要整批匯出中斷,
+          // 標記這張卡有錯,匯出完整體一併報告
+          fileEntries.push({ idx: i + 1, total: cards.length, name: fname, error: err.message || String(err) });
+        }
         if (onProgress) onProgress(i + 1, cards.length, fname);
         // 讓 UI 有機會更新
         await new Promise(r => setTimeout(r, 0));
@@ -818,55 +861,17 @@ Chaser
       const colorClass = useTypeColors ? TYPE_COLORS[card.type] : null;
       const inlineStyle = !useTypeColors && customColor ? { color: customColor } : {};
 
-      // 字級計算 — 每行各自算自己的最大可放字級,長英文行小一點不會拖累短中文行
-      const lineVisualWidth = (l) => {
-        let w = 0;
-        for (const ch of l) {
-          w += /[一-鿿]/.test(ch) ? 1 : CHAR_WIDTH_LATIN;
-        }
-        return Math.max(w, 1);
-      };
-
-      // 卡片高度 56.25cqw,扣 padding 約 47cqw 可用
-      // label 高度 = 1.5 × baseSize(若有);title 各行高度 = 自己的字級
-      // 我們先估「主標題基準」字級(寬度限制取所有 title 行最大寬度)
-      const labelMultiplier = showLabel ? 1.5 : 0;
-      const labelLen = labelText.length || 1;
-      const labelWidthVisual = lineVisualWidth(labelText) || 1;
-
-      // 高度約束:label rows + title rows + gap 之和 ≤ 47cqw
-      // 用「主標題基準」當分母
-      const totalRowFactor = labelMultiplier + lines.length + Math.max(lines.length - 1, 0) * 0.1;
-      const heightConstrainedBase = totalRowFactor > 0 ? 47 / totalRowFactor : 47;
-
-      // label 寬度限制(label scale = 1.5×)
-      const labelWidthBase = (88 / labelWidthVisual) / 1.5;
-
-      // 各行寬度限制 — 取「最寬那行」當主標題基準寬度
-      const lineWidths = lines.map(lineVisualWidth);
-      const maxLineWidth = Math.max(...lineWidths, 1);
-      const widthConstrainedBase = 88 / maxLineWidth;
-
-      // 基準字級:取 width / height / label 寬 三者最小
-      const baseSize = Math.max(8, Math.min(heightConstrainedBase, widthConstrainedBase, labelWidthBase));
-
-      // 每行字級:盡量等於 baseSize,但若該行單獨可以更大就放大(短行不被長行拖累)
-      // 上限:該行自己的寬度限制 88/lineWidth,以及一個「不超過 base 的 1.4 倍」防爆掉節奏
-      const perLineSize = lineWidths.map(w => {
-        const ownWidthLimit = 88 / w;
-        return Math.min(ownWidthLimit, baseSize * 1.4);
+      // 字級 layout — 跟 Canvas 渲染共用 computeStackLayout,杜絕未來 drift
+      // Card 用 cqw 單位:availW = 100 × AVAIL_W_RATIO = 88cqw
+      //                  availH = 56.25 × AVAIL_H_RATIO ≈ 47cqw
+      const { labelFontSize: labelSizeRaw, perLineSize, maxLineWidth } = computeStackLayout({
+        titleLines: lines,
+        labelText,
+        hasLabel: showLabel,
+        availW: 100 * AVAIL_W_RATIO,
+        availH: 56.25 * AVAIL_H_RATIO,
       });
-
-      // 安全閥:逐行放大後可能讓總高度爆出可用高度(47cqw),等比縮回去
-      const labelStackHeight = showLabel ? baseSize * 1.5 * (1 + 0.06) : 0;
-      const titleStackHeight = perLineSize.reduce((s, sz) => s + sz * 1.05, 0);
-      const stackHeight = labelStackHeight + titleStackHeight;
-      if (stackHeight > 47) {
-        const shrink = 47 / stackHeight;
-        for (let i = 0; i < perLineSize.length; i++) perLineSize[i] *= shrink;
-      }
-
-      const labelFontSize = (baseSize * 1.5).toFixed(1);
+      const labelFontSize = labelSizeRaw.toFixed(1);
 
       return (
         <div
@@ -1304,19 +1309,8 @@ Chaser
                 </div>
               </section>
 
-              <Toggle
-                label="智慧斷詞 (jieba)"
-                desc="7+ 字標題優先按詞邊界切"
-                checked={settings.useJieba}
-                onChange={v => set('useJieba', v)}
-              />
-
-              <Toggle
-                label="啟動時檢查更新"
-                desc="不會自動下載,只通知"
-                checked={settings.checkUpdate}
-                onChange={v => set('checkUpdate', v)}
-              />
+              {/* useJieba / checkUpdate toggle 已移除:背後沒實作,留著會誤導 VJ 以為有效。
+                  之後若實作再加回來,設定該長怎樣到時再決定。 */}
             </div>
 
             <div className="border-t border-slate-800/60 px-6 py-3 text-[11px] text-slate-600 flex justify-between">
@@ -1384,14 +1378,13 @@ Chaser
       };
 
       const undoSnapshot = () => {
-        setHistory(h => {
-          if (h.length === 0) return h;
-          const last = h[h.length - 1];
-          setRaw(last.raw);
-          setResult(last.result);
-          setStatus(last.status ? '↶ 已 undo · 上次:' + last.status : '↶ 已 undo');
-          return h.slice(0, -1);
-        });
+        // 不要在 setHistory 的 updater 裡呼叫其他 setter:React 不保證 updater 只跑一次
+        if (history.length === 0) return;
+        const last = history[history.length - 1];
+        setRaw(last.raw);
+        setResult(last.result);
+        setStatus(last.status ? '↶ 已 undo · 上次:' + last.status : '↶ 已 undo');
+        setHistory(h => h.slice(0, -1));
       };
 
       const doParse = () => {
@@ -1816,11 +1809,6 @@ Chaser
               </div>
             </section>
 
-            <Toggle label="智慧斷詞 (jieba)"
-              desc="7+ 字標題優先按詞邊界切"
-              checked={settings.useJieba}
-              onChange={v => set('useJieba', v)} />
-
             <div className="pt-3 border-t border-slate-800/40 text-xs text-slate-500 leading-relaxed">
               <div className="font-semibold text-slate-400 mb-2">提示</div>
               <p className="mb-1.5">點任何卡片 → 編輯個別屬性</p>
@@ -1888,8 +1876,6 @@ Chaser~阿明
         useTypeColors: true,
         transparent: true,
         split5: '3/2',
-        useJieba: true,
-        checkUpdate: true,
         geminiApiKey: '',
         ...(initial.settings || {}),
       });
@@ -2042,7 +2028,13 @@ Chaser~阿明
         if (position === 'after') targetLineIdx += 1;
         newLines.splice(targetLineIdx, 0, fromLine);
         setText(newLines.join('\n'));
-        setSelectedIds(new Set([toIdx]));  // 移完 select 移到的位置
+        // 若移到的卡片類型被 filter 過濾掉,目標卡會看不見 → 清 selection 比較不困惑
+        const movedCard = cards[fromIdx];
+        if (movedCard && !filterTypes.has(movedCard.type)) {
+          setSelectedIds(new Set());
+        } else {
+          setSelectedIds(new Set([toIdx]));
+        }
       };
 
       const onCardDragStart = (idx) => {
@@ -2081,15 +2073,18 @@ Chaser~阿明
           document.fonts.load('900 100px "Noto Sans TC"'),
           document.fonts.load('900 60px "Noto Sans TC"'),
           document.fonts.load('500 14px "JetBrains Mono"'),
-        ]).then(() => setFontsReady(true)).catch(() => setFontsReady(true));
+        ]).then(() => setFontsReady(true)).catch(err => {
+          // 字型載入失敗(網路問題、CDN 掛了)— 仍 setFontsReady(true) 讓使用者能匯出,
+          // 但 console.warn 留紀錄,匯出的 PNG 字型可能 fallback 到系統字型,跟預覽不一樣
+          console.warn('[arena-cardgen] 字型預載失敗,匯出可能 fallback 系統字型:', err);
+          setFontsReady(true);
+        });
       }, []);
 
       const cards = useMemo(() => {
         const parsed = parseSetlist(text);
-        return parsed.map(c => {
-          const k = cardKey(c);
-          return { ...c, ...(overrides[k] || {}), _key: k };
-        });
+        const keys = buildCardKeys(parsed);
+        return parsed.map((c, i) => ({ ...c, ...(overrides[keys[i]] || {}), _key: keys[i] }));
       }, [text, overrides]);
 
       const handleCardClick = (i, e) => {
@@ -2118,11 +2113,9 @@ Chaser~阿明
 
       const updateCard = (i, partial) => {
         const c = cards[i];
-        if (!c) return;
-        const k = c._key || cardKey(c);
-        // 過濾 _key,不要寫進 override
+        if (!c || !c._key) return;
         const { _key, ...rest } = partial;
-        setOverrides(o => ({ ...o, [k]: { ...(o[k] || {}), ...rest } }));
+        setOverrides(o => ({ ...o, [c._key]: { ...(o[c._key] || {}), ...rest } }));
       };
       const updateMultipleCards = (ids, partial) => {
         const { _key, ...rest } = partial;
@@ -2130,26 +2123,21 @@ Chaser~阿明
           const next = { ...o };
           ids.forEach(i => {
             const c = cards[i];
-            if (!c) return;
-            const k = c._key || cardKey(c);
-            next[k] = { ...(next[k] || {}), ...rest };
+            if (!c || !c._key) return;
+            next[c._key] = { ...(next[c._key] || {}), ...rest };
           });
           return next;
         });
       };
       const deleteCard = (i) => {
+        // 用行號而非內容匹配 — 重複內容的 setlist(例如兩個 Chaser~)才不會誤刪第一個
         const lines = text.split('\n');
-        const realLines = lines.filter(l => l.trim() && !/^-+$/.test(l.trim()));
-        if (i < realLines.length) {
-          const targetLine = realLines[i];
-          let removed = false;
-          const newText = lines.filter(l => {
-            if (!removed && l.trim() === targetLine.trim()) { removed = true; return false; }
-            return true;
-          }).join('\n');
-          setText(newText);
-          setSelectedIds(new Set());
-        }
+        const realIdxToLine = [];
+        lines.forEach((l, idx) => { if (l.trim() && !/^-+$/.test(l.trim())) realIdxToLine.push(idx); });
+        if (i >= realIdxToLine.length) return;
+        const newLines = lines.filter((_, idx) => idx !== realIdxToLine[i]);
+        setText(newLines.join('\n'));
+        setSelectedIds(new Set());
       };
       const duplicateCard = (i) => {
         const lines = text.split('\n');
@@ -2166,6 +2154,10 @@ Chaser~阿明
       // keyboard shortcuts
       useEffect(() => {
         const onKey = (e) => {
+          // 匯出中(尚未 complete)忽略所有 shortcut — 否則按 Ctrl+Z 會改 text,
+          // 跟 snapshot 進去匯出的內容對不起來,VJ 會誤以為「我以為我存的是 undo 前那份」
+          if (exportState && !exportState.complete) return;
+
           // 不要攔截 input / textarea 內的按鍵
           const tag = (e.target && e.target.tagName) || '';
           const inEditor = tag === 'INPUT' || tag === 'TEXTAREA';
@@ -2196,7 +2188,7 @@ Chaser~阿明
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-      }, [cards.length]);
+      }, [cards.length, exportState]);
 
       const selectedIdxArr = useMemo(() => Array.from(selectedIds).sort((a, b) => a - b), [selectedIds]);
       const singleSelected = selectedIdxArr.length === 1 ? selectedIdxArr[0] : null;
