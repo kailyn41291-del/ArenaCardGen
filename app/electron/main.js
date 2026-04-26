@@ -102,7 +102,13 @@ ipcMain.handle('write-png', async (event, { folder, filename, dataBase64 }) => {
 });
 
 ipcMain.handle('open-folder', async (event, folder) => {
-  shell.openPath(folder);
+  if (!allowedExportFolder) return;
+  const resolved = path.resolve(String(folder));
+  if (resolved !== allowedExportFolder &&
+      !resolved.startsWith(allowedExportFolder + path.sep)) {
+    return;
+  }
+  shell.openPath(resolved);
 });
 
 ipcMain.handle('app-version', () => app.getVersion());

@@ -134,6 +134,10 @@
   <script type="text/babel" data-presets="react">
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
+    // 中英寬度比常數 — Inter Black weight 大寫字母實測 advance ≈ 0.65em
+    // (0.55 會低估導致字級算太大、字撞框)。chooseBestLayout / Card / Canvas 三處共用。
+    const CHAR_WIDTH_LATIN = 0.65;
+
     // ────────────────────────────────────────────────────────────────
     // 清理 title:剝括號、重複 SONG 編號、舞台關鍵字、裝飾符號
     // ────────────────────────────────────────────────────────────────
@@ -211,10 +215,8 @@
           let m = line.match(/^(INTRO|ENCORE|OUTRO)\s*[-–]\s*['"]?(.+?)['"]?$/i);
           if (m) return { type: 'section', label: m[1].toUpperCase(), title: m[2].trim() };
 
-          // TALKING-N or Talking N
+          // TALKING-N or Talking N(/i flag 涵蓋大小寫)
           m = line.match(/^TALKING[\s-]*(\d+)/i);
-          if (m) return { type: 'talking', label: '', title: `TALKING-${m[1]}` };
-          m = line.match(/^Talking\s*(\d+)/i);
           if (m) return { type: 'talking', label: '', title: `TALKING-${m[1]}` };
 
           // 轉場 / 转场
@@ -293,7 +295,7 @@
       }
 
       // 評分:估算字級 = min(width-limit, height-limit),挑最大者
-      const charW = isCJK ? 1 : 0.55;
+      const charW = isCJK ? 1 : CHAR_WIDTH_LATIN;
       const labelRows = hasLabel ? 1.5 : 0;
       function fontEstimate(ls) {
         const maxLen = Math.max(...ls.map(l => l.length), 1);
@@ -542,7 +544,7 @@
       // 字級計算 — 跟 Card 元件邏輯保持一致(每行獨立字級 + 高度安全閥)
       const lineVisualWidth = (l) => {
         let v = 0;
-        for (const ch of l) v += /[一-鿿]/.test(ch) ? 1 : 0.55;
+        for (const ch of l) v += /[一-鿿]/.test(ch) ? 1 : CHAR_WIDTH_LATIN;
         return Math.max(v, 1);
       };
 
@@ -817,11 +819,10 @@ Chaser
       const inlineStyle = !useTypeColors && customColor ? { color: customColor } : {};
 
       // 字級計算 — 每行各自算自己的最大可放字級,長英文行小一點不會拖累短中文行
-      // 中英寬度比:中文 1.0、英文 0.65(Inter Black weight 大寫實測 advance,0.55 會低估導致超框)
       const lineVisualWidth = (l) => {
         let w = 0;
         for (const ch of l) {
-          w += /[一-鿿]/.test(ch) ? 1 : 0.65;
+          w += /[一-鿿]/.test(ch) ? 1 : CHAR_WIDTH_LATIN;
         }
         return Math.max(w, 1);
       };
@@ -865,7 +866,6 @@ Chaser
         for (let i = 0; i < perLineSize.length; i++) perLineSize[i] *= shrink;
       }
 
-      const titleFontSize = baseSize.toFixed(1); // 沒用到了,留著 var 名一致
       const labelFontSize = (baseSize * 1.5).toFixed(1);
 
       return (
