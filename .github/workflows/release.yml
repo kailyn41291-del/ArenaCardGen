@@ -36,15 +36,16 @@ jobs:
         env:
           # 不簽名(沒買 cert);electron-builder 會自動嵌 icon
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win
+        # --publish never:package.json 有 publish config(讓 electron-updater 找 latest.yml),
+        # 但 build 時不要 try publish(會要 GH_TOKEN)。upload 由下面的 action-gh-release 統一處理
+        run: npx electron-builder --win --publish never
 
       - name: Build (macOS)
         if: matrix.os == 'macos-latest'
         working-directory: app
         env:
-          # 不做 code signing / notarization (沒買 Apple Developer cert)
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --mac
+        run: npx electron-builder --mac --publish never
 
       - name: List artifacts
         working-directory: app
