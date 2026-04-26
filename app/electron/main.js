@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -118,3 +118,44 @@ ipcMain.handle('open-folder', async (event, folder) => {
 
 ipcMain.handle('app-version', () => app.getVersion());
 ipcMain.handle('app-platform', () => process.platform);
+
+// ────────────────────────────────────────────────────────────────
+// Gemini API key — 用 safeStorage 加密(OS keychain:Windows DPAPI / macOS Keychain)
+// 不同機器解不開,且不會跟 localStorage 一起 export(JSON serialize 不到)
+// ────────────────────────────────────────────────────────────────
+function geminiKeyPath() {
+  return path.join(app.getPath('userData'), 'gemini-key.enc');
+}
+
+ipcMain.handle('get-gemini-key', async () => {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return '';
+    const file = geminiKeyPath();
+    if (!fs.existsSync(file)) return '';
+    const encrypted = fs.readFileSync(file);
+    return safeStorage.decryptString(encrypted);
+  } catch (err) {
+    console.error('[get-gemini-key]', err);
+    return '';
+  }
+});
+
+ipcMain.handle('set-gemini-key', async (event, key) => {
+  try {
+    const k = String(key || '').trim();
+    const file = geminiKeyPath();
+    if (!k) {
+      // 清空 — 刪檔(不存空 string,免得有殘檔)
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+      return { ok: true };
+    }
+    if (!safeStorage.isEncryptionAvailable()) {
+      return { ok: false, error: 'OS keychain 不可用,key 未儲存' };
+    }
+    const encrypted = safeStorage.encryptString(k);
+    fs.writeFileSync(file, encrypted);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});

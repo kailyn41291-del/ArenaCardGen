@@ -8,4 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFolder: (folder) => ipcRenderer.invoke('open-folder', folder),
   appVersion: () => ipcRenderer.invoke('app-version'),
   appPlatform: () => ipcRenderer.invoke('app-platform'),
+  // Gemini API key 透過 OS keychain 加密儲存,不落 localStorage
+  getGeminiKey: () => ipcRenderer.invoke('get-gemini-key'),
+  setGeminiKey: (key) => ipcRenderer.invoke('set-gemini-key', key),
 });

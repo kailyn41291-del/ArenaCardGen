@@ -536,7 +536,13 @@
     }
     function savePersistedState(state) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        // 防呆:即使 settings 意外混入 geminiApiKey,也不寫進 localStorage(B3 安全)
+        const safe = { ...state };
+        if (safe.settings && 'geminiApiKey' in safe.settings) {
+          const { geminiApiKey: _drop, ...rest } = safe.settings;
+          safe.settings = rest;
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
         return true;
       } catch { return false; }
     }
@@ -1871,14 +1877,57 @@ Chaser~阿明
       const [dragIdx, setDragIdx] = useState(null);
       const [dropTargetIdx, setDropTargetIdx] = useState(null);  // {idx, position: 'before'|'after'}
 
-      const [settings, setSettings] = useState({
-        textColor: '#FFFFFF',
-        useTypeColors: true,
-        transparent: true,
-        split5: '3/2',
-        geminiApiKey: '',
-        ...(initial.settings || {}),
+      const [settings, setSettings] = useState(() => {
+        // 從 initial.settings 過濾掉 geminiApiKey(B3:改用 safeStorage IPC 儲存,
+        // 不再寫進 localStorage settings)
+        const { geminiApiKey: _legacyKey, ...rest } = initial.settings || {};
+        return {
+          textColor: '#FFFFFF',
+          useTypeColors: true,
+          transparent: true,
+          split5: '3/2',
+          ...rest,
+        };
       });
+
+      // Gemini API key — 用 OS keychain (Electron safeStorage) 加密存,不落 localStorage
+      // web fallback:沒 electronAPI 時用 sessionStorage(僅當前分頁,關掉就清)
+      const [geminiApiKey, setGeminiApiKeyState] = useState('');
+      useEffect(() => {
+        let cancelled = false;
+        (async () => {
+          // 1. 從 safeStorage 讀(Electron)/ sessionStorage 讀(web fallback)
+          let stored = '';
+          if (window.electronAPI?.getGeminiKey) {
+            try { stored = await window.electronAPI.getGeminiKey() || ''; } catch {}
+          } else {
+            stored = sessionStorage.getItem('gemini-key') || '';
+          }
+          // 2. Migration:若舊版 localStorage 還有 geminiApiKey,搬到 safeStorage 再清掉
+          const legacyKey = (initial.settings && initial.settings.geminiApiKey) || '';
+          if (legacyKey && !stored) {
+            stored = legacyKey;
+            if (window.electronAPI?.setGeminiKey) {
+              try { await window.electronAPI.setGeminiKey(legacyKey); } catch {}
+            } else {
+              sessionStorage.setItem('gemini-key', legacyKey);
+            }
+          }
+          if (!cancelled) setGeminiApiKeyState(stored);
+        })();
+        return () => { cancelled = true; };
+      }, []);
+
+      const setGeminiApiKey = useCallback(async (key) => {
+        const k = String(key || '').trim();
+        setGeminiApiKeyState(k);
+        if (window.electronAPI?.setGeminiKey) {
+          try { await window.electronAPI.setGeminiKey(k); } catch (err) { console.error('setGeminiKey:', err); }
+        } else {
+          if (k) sessionStorage.setItem('gemini-key', k);
+          else sessionStorage.removeItem('gemini-key');
+        }
+      }, []);
 
       // ────── Quick template helpers ──────
       const appendLines = (lines) => {
@@ -2497,8 +2546,8 @@ Chaser~阿明
             open={showParser}
             onClose={() => setShowParser(false)}
             onImport={(t) => setText(t)}
-            geminiApiKey={settings.geminiApiKey}
-            setGeminiApiKey={(v) => setSettings(s => ({ ...s, geminiApiKey: v }))}
+            geminiApiKey={geminiApiKey}
+            setGeminiApiKey={setGeminiApiKey}
           />
           <ExportChecklist
             open={showChecklist}
