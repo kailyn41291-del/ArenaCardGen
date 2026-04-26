@@ -138,6 +138,36 @@
     // (0.55 會低估導致字級算太大、字撞框)。chooseBestLayout / Card / Canvas 三處共用。
     const CHAR_WIDTH_LATIN = 0.65;
 
+    // ────────────────────────────────────────────────────────────────
+    // Auto-update Tier 1 — 啟動時 fetch GitHub Releases API,有新版顯示 toast
+    // ────────────────────────────────────────────────────────────────
+    const APP_VERSION_FALLBACK = '0.3.0';  // 沒 electronAPI 時的 fallback
+    const RELEASES_API = 'https://api.github.com/repos/kailyn41291-del/ArenaCardGen/releases/latest';
+    const DISMISSED_VERSION_KEY = 'arena-cardgen-dismissed-update-version';
+
+    // semver 比較:'1.2.3-beta1' < '1.2.3'(pre-release tag 比 release 小)
+    function compareVersion(a, b) {
+      const norm = (v) => String(v || '').replace(/^v/, '').trim();
+      const splitVer = (v) => {
+        const [main, pre] = norm(v).split('-');
+        const mainParts = main.split('.').map(n => parseInt(n, 10) || 0);
+        return { main: mainParts, pre: pre || '' };
+      };
+      const aa = splitVer(a);
+      const bb = splitVer(b);
+      const len = Math.max(aa.main.length, bb.main.length);
+      for (let i = 0; i < len; i++) {
+        const x = aa.main[i] || 0;
+        const y = bb.main[i] || 0;
+        if (x !== y) return x - y;
+      }
+      // main 相等:無 pre > 有 pre(release 比 beta 新)
+      if (!aa.pre && bb.pre) return 1;
+      if (aa.pre && !bb.pre) return -1;
+      if (aa.pre !== bb.pre) return aa.pre < bb.pre ? -1 : 1;
+      return 0;
+    }
+
     // 卡片可用區域比例(扣 padding 後)。Card 元件用 cqw 單位、Canvas 用 px,
     // 但比例必須一致,否則預覽跟匯出 PNG 字級會 drift。
     // 卡片寬高比 16:9 → height/width = 56.25/100 = 0.5625
@@ -524,6 +554,31 @@
         return `${base}::${n}`;
       });
     }
+    // 當 text 改動(reorder / 刪 / 複製)時,把舊 overrides 對齊到新卡片的 keys。
+    // 邏輯:對每張新卡,找舊卡中第一個內容相同且未被 claim 的 → 繼承它的 override。
+    // 解決問題:重複內容(兩個 Chaser~)reorder 後 colorOverride 不會跑到別張。
+    function realignOverrides(prevText, newText, prevOverrides) {
+      if (!prevOverrides || Object.keys(prevOverrides).length === 0) return {};
+      const prevParsed = parseSetlist(prevText);
+      const prevKeys = buildCardKeys(prevParsed);
+      const newParsed = parseSetlist(newText);
+      const newKeys = buildCardKeys(newParsed);
+      const claimed = new Set();
+      const result = {};
+      newParsed.forEach((nc, i) => {
+        for (let j = 0; j < prevParsed.length; j++) {
+          if (claimed.has(j)) continue;
+          const pc = prevParsed[j];
+          if (pc.type === nc.type && pc.label === nc.label && pc.title === nc.title) {
+            claimed.add(j);
+            const ov = prevOverrides[prevKeys[j]];
+            if (ov) result[newKeys[i]] = ov;
+            return;
+          }
+        }
+      });
+      return result;
+    }
 
     // localStorage persistence — F5 不會掉資料
     const STORAGE_KEY = 'arena-cardgen-state-v1';
@@ -909,12 +964,12 @@ Chaser
               style={inlineStyle}
             >
               {showLabel && (
-                <div style={{ fontSize: `${labelFontSize}cqw`, lineHeight: 1, marginBottom: '0.06em' }}>
+                <div style={{ fontSize: `${labelFontSize}cqw`, lineHeight: 1, marginBottom: '0.06em', whiteSpace: 'nowrap' }}>
                   {labelText}
                 </div>
               )}
               {lines.map((l, i) => (
-                <div key={i} style={{ fontSize: `${perLineSize[i].toFixed(1)}cqw`, lineHeight: 1.05 }}>{l}</div>
+                <div key={i} style={{ fontSize: `${perLineSize[i].toFixed(1)}cqw`, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{l}</div>
               ))}
             </div>
           </button>
@@ -1929,6 +1984,46 @@ Chaser~阿明
         }
       }, []);
 
+      // Auto-update Tier 1:啟動時檢查 GitHub Releases,有新版顯示 toast
+      // updateInfo = { version, url } | null;dismissed 後本機記住版本號不再煩
+      const [updateInfo, setUpdateInfo] = useState(null);
+      useEffect(() => {
+        let cancelled = false;
+        (async () => {
+          try {
+            const currentVersion = window.electronAPI?.appVersion
+              ? await window.electronAPI.appVersion()
+              : APP_VERSION_FALLBACK;
+            const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY) || '';
+            const r = await fetch(RELEASES_API, { headers: { 'Accept': 'application/vnd.github+json' } });
+            if (!r.ok) return;
+            const release = await r.json();
+            const latest = release && release.tag_name;
+            if (!latest || cancelled) return;
+            if (compareVersion(latest, currentVersion) > 0 && latest !== dismissed) {
+              setUpdateInfo({ version: latest, url: release.html_url });
+            }
+          } catch {
+            // 網路失敗、API 限流、無網路:靜默,不騷擾使用者
+          }
+        })();
+        return () => { cancelled = true; };
+      }, []);
+
+      const dismissUpdate = useCallback(() => {
+        if (updateInfo) localStorage.setItem(DISMISSED_VERSION_KEY, updateInfo.version);
+        setUpdateInfo(null);
+      }, [updateInfo]);
+
+      const downloadUpdate = useCallback(() => {
+        if (!updateInfo) return;
+        if (window.electronAPI && updateInfo.url) {
+          window.open(updateInfo.url, '_blank');
+        } else if (updateInfo.url) {
+          window.location.href = updateInfo.url;
+        }
+      }, [updateInfo]);
+
       // ────── Quick template helpers ──────
       const appendLines = (lines) => {
         const cleanedLines = lines.filter(Boolean);
@@ -2076,7 +2171,10 @@ Chaser~阿明
         }
         if (position === 'after') targetLineIdx += 1;
         newLines.splice(targetLineIdx, 0, fromLine);
-        setText(newLines.join('\n'));
+        const newText = newLines.join('\n');
+        // 重複內容卡 reorder 後,occurrence index 順序變,override 要跟著卡片走才不會跑到別張
+        setOverrides(realignOverrides(text, newText, overrides));
+        setText(newText);
         // 若移到的卡片類型被 filter 過濾掉,目標卡會看不見 → 清 selection 比較不困惑
         const movedCard = cards[fromIdx];
         if (movedCard && !filterTypes.has(movedCard.type)) {
@@ -2185,7 +2283,9 @@ Chaser~阿明
         lines.forEach((l, idx) => { if (l.trim() && !/^-+$/.test(l.trim())) realIdxToLine.push(idx); });
         if (i >= realIdxToLine.length) return;
         const newLines = lines.filter((_, idx) => idx !== realIdxToLine[i]);
-        setText(newLines.join('\n'));
+        const newText = newLines.join('\n');
+        setOverrides(realignOverrides(text, newText, overrides));
+        setText(newText);
         setSelectedIds(new Set());
       };
       const duplicateCard = (i) => {
@@ -2196,7 +2296,11 @@ Chaser~阿明
           const lineIdx = realIdxToLine[i];
           const newLines = [...lines];
           newLines.splice(lineIdx + 1, 0, lines[lineIdx]);
-          setText(newLines.join('\n'));
+          const newText = newLines.join('\n');
+          // 複製的新卡會 claim 第一個匹配,本來那張變成「第二個」拿到原 override —
+          // realign 確保 override 跟著「原本那張」(claim 順序),複製出的新卡是空的
+          setOverrides(realignOverrides(text, newText, overrides));
+          setText(newText);
         }
       };
 
@@ -2573,7 +2677,12 @@ Chaser~阿明
             state={exportState}
             onClose={() => setExportState(null)}
           />
-          {/* UpdateToast 暫時拿掉 — 還沒接真的更新檢查 */}
+          <UpdateToast
+            visible={!!updateInfo}
+            version={updateInfo ? updateInfo.version : ''}
+            onDismiss={dismissUpdate}
+            onDownload={downloadUpdate}
+          />
         </div>
       );
     }
