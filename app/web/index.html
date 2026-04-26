@@ -563,47 +563,41 @@
       return titles.map((t, i) => `S${String(i + 1).padStart(2, '0')} ${t}`).join('\n');
     }
 
-    // 內容導向的 stable key — 跨 reorder 不會跑掉
-    // 用 parsed values(type/label/title)組成,override 不影響 key
-    // cardKey:type+label+title 作 base,加上 occurrence index 區分重複內容(例如多個 Chaser~)
-    // 注意:用 ?? 而非 || 讓空字串("空白卡")不被當成 falsy 而合併進別的 key
+    // 內容對齊的 base key(只用於 alignCardIds 比對,不再當 override 的 storage key)
     function cardKeyBase(card) {
       return `${card.type ?? 'x'}::${card.label ?? ''}::${card.title ?? ''}`;
     }
-    function buildCardKeys(cards) {
-      const seen = new Map();
-      return cards.map(c => {
-        const base = cardKeyBase(c);
-        const n = (seen.get(base) || 0) + 1;
-        seen.set(base, n);
-        return `${base}::${n}`;
-      });
+
+    // ────────────────────────────────────────────────────────────────
+    // Stable card IDs(UUID,跟 cards array 平行存,徹底解 reorder 顏色問題)
+    // ────────────────────────────────────────────────────────────────
+    // 為什麼用 parallel array 而不是 UUID-in-text:
+    // - text 是 user 直接編輯的 textarea,塞 UUID(零寬字元編碼)會讓 user
+    //   複製到別的地方時帶到隱藏字元,有副作用
+    // - parallel array 配合 alignCardIds(內容對齊)足以處理 textarea 直接編輯
+    //   的情境,而 reorder / delete / duplicate 透過顯式維護 cardIds 100% 對齊
+    function generateCardId() {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+      return 'id-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
     }
-    // 當 text 改動(reorder / 刪 / 複製)時,把舊 overrides 對齊到新卡片的 keys。
-    // 邏輯:對每張新卡,找舊卡中第一個內容相同且未被 claim 的 → 繼承它的 override。
-    // 解決問題:重複內容(兩個 Chaser~)reorder 後 colorOverride 不會跑到別張。
-    function realignOverrides(prevText, newText, prevOverrides) {
-      const safe = prevOverrides || {};
-      const prevParsed = parseSetlist(prevText);
-      const prevKeys = buildCardKeys(prevParsed);
-      const newParsed = parseSetlist(newText);
-      const newKeys = buildCardKeys(newParsed);
-      const prevBaseKeys = prevParsed.map(cardKeyBase);
+
+    // 對齊舊 cardIds 到新 cards:對每張新卡,找舊卡第一個內容相同未被 claim 的 → 繼承 ID
+    // 沒對應的(新增 / 內容變更 / 刪掉)→ 給新 UUID
+    // 注意:此 fn 用於 textarea 直接編輯(內容 mutation)。reorder / delete / duplicate
+    // 應顯式提供新 cardIds 順序,不走這條(否則重複內容會錯位)。
+    function alignCardIds(prevCards, prevIds, newCards) {
       const claimed = new Set();
-      const result = {};
-      newParsed.forEach((nc, i) => {
-        const targetBase = cardKeyBase(nc);
-        for (let j = 0; j < prevParsed.length; j++) {
-          if (claimed.has(j)) continue;
-          if (prevBaseKeys[j] === targetBase) {
-            claimed.add(j);
-            const ov = safe[prevKeys[j]];
-            if (ov) result[newKeys[i]] = ov;
-            return;
+      return newCards.map(nc => {
+        const baseKey = cardKeyBase(nc);
+        for (let i = 0; i < prevCards.length; i++) {
+          if (claimed.has(i)) continue;
+          if (cardKeyBase(prevCards[i]) === baseKey) {
+            claimed.add(i);
+            return prevIds[i] || generateCardId();
           }
         }
+        return generateCardId();
       });
-      return result;
     }
 
     // localStorage persistence — F5 不會掉資料
@@ -2204,14 +2198,45 @@ Chaser~阿明
         setUpdateInfo(null);
       }, [updateInfo]);
 
+      // ────── Stable card IDs(UUID per card,跨 reorder 不會跑掉)──────
+      // initial 從 localStorage 載;若舊版資料沒 cardIds,用 alignCardIds 從 text 推出來
+      const [cardIds, setCardIds] = useState(() => {
+        const saved = initial.cardIds;
+        if (Array.isArray(saved) && saved.length > 0) return saved;
+        // 啟動時根據 initial text 算出來
+        const parsed = parseSetlist(initial.text || DEFAULT_TEXT);
+        return parsed.map(() => generateCardId());
+      });
+
+      // 統一的 text + cardIds 更新函式 — 所有改 text 的地方都走這條
+      // 確保 cardIds 永遠跟 cards 對齊。模式:
+      //   - 預設(textarea 編輯):用 alignCardIds 對內容比對,新增的卡給新 UUID
+      //   - newIds:顯式提供新順序(reorder / delete / duplicate / replace 都用這個)
+      const updateText = useCallback((newTextOrUpdater, opts = {}) => {
+        const { newIds: explicitIds } = opts;
+        setText(prev => {
+          const newText = typeof newTextOrUpdater === 'function' ? newTextOrUpdater(prev) : newTextOrUpdater;
+          if (explicitIds) {
+            setCardIds(explicitIds);
+          } else {
+            // align — 對內容比對,新增的卡(內容沒對應到舊卡的)給新 UUID
+            const prevCards = parseSetlist(prev);
+            setCardIds(prevIds => alignCardIds(prevCards, prevIds, parseSetlist(newText)));
+          }
+          return newText;
+        });
+      }, []);
+
       // ────── Quick template helpers ──────
       const appendLines = (lines) => {
         const cleanedLines = lines.filter(Boolean);
         if (!cleanedLines.length) return;
-        setText(prev => {
+        // append 場景:既有 cardIds 全留,新增 N 個新 UUID
+        const newIds = cleanedLines.map(() => generateCardId());
+        updateText(prev => {
           const trimmed = prev.split('\n').filter(l => l.trim()).join('\n');
           return (trimmed ? trimmed + '\n' : '') + cleanedLines.join('\n');
-        });
+        }, { newIds: [...cardIds, ...newIds] });
       };
       const tplAddSongs = () => {
         let a = parseInt(tplSFrom, 10);
@@ -2271,7 +2296,7 @@ Chaser~阿明
       // Auto-save (debounced 400ms)
       useEffect(() => {
         const t = setTimeout(() => {
-          const ok = savePersistedState({ text, overrides, settings, gridCols, leftWidth, rightWidth });
+          const ok = savePersistedState({ text, overrides, cardIds, settings, gridCols, leftWidth, rightWidth });
           if (ok) setSavedAt(new Date().toLocaleTimeString('zh-TW', { hour12: false }));
         }, 400);
         return () => clearTimeout(t);
@@ -2286,26 +2311,35 @@ Chaser~阿明
         }
         const t = setTimeout(() => {
           const last = historyRef.current[historyIdxRef.current];
-          if (last && last.text === text && JSON.stringify(last.overrides) === JSON.stringify(overrides)) {
+          if (last && last.text === text
+              && JSON.stringify(last.overrides) === JSON.stringify(overrides)
+              && JSON.stringify(last.cardIds) === JSON.stringify(cardIds)) {
             return; // 無實質改動,不 push
           }
           // 砍掉 idx 之後的 redo 歷史
           historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
-          historyRef.current.push({ text, overrides: { ...overrides } });
+          historyRef.current.push({ text, overrides: { ...overrides }, cardIds: [...cardIds] });
           if (historyRef.current.length > 50) historyRef.current.shift();
           historyIdxRef.current = historyRef.current.length - 1;
         }, 600);
         return () => clearTimeout(t);
-      }, [text, overrides]);
+      }, [text, overrides, cardIds]);
 
       const undo = () => {
         if (historyIdxRef.current <= 0) return;
         historyIdxRef.current -= 1;
         const snap = historyRef.current[historyIdxRef.current];
         skipNextHistoryRef.current = true;
-        // 走 realign 而非直接 setOverrides:若 cardKey 規則將來變動,
-        // 歷史 snapshot 用舊規則的 keys 仍能對齊到新 cards 的 keys
-        setOverrides(() => realignOverrides(text, snap.text, snap.overrides));
+        // 還原時 cardIds 也跟著還原(老 snapshot 沒 cardIds 就用 align fallback)
+        if (snap.cardIds) {
+          setCardIds(snap.cardIds);
+          setOverrides(snap.overrides || {});
+        } else {
+          // backwards compat:舊 snapshot 沒 cardIds → align 從 text 推
+          const prevCards = parseSetlist(text);
+          setCardIds(prevIds => alignCardIds(prevCards, prevIds, parseSetlist(snap.text)));
+          setOverrides(snap.overrides || {});
+        }
         setText(snap.text);
         setSavedAt('已 undo');
       };
@@ -2314,7 +2348,14 @@ Chaser~阿明
         historyIdxRef.current += 1;
         const snap = historyRef.current[historyIdxRef.current];
         skipNextHistoryRef.current = true;
-        setOverrides(() => realignOverrides(text, snap.text, snap.overrides));
+        if (snap.cardIds) {
+          setCardIds(snap.cardIds);
+          setOverrides(snap.overrides || {});
+        } else {
+          const prevCards = parseSetlist(text);
+          setCardIds(prevIds => alignCardIds(prevCards, prevIds, parseSetlist(snap.text)));
+          setOverrides(snap.overrides || {});
+        }
         setText(snap.text);
         setSavedAt('已 redo');
       };
@@ -2354,9 +2395,14 @@ Chaser~阿明
         if (position === 'after') targetLineIdx += 1;
         newLines.splice(targetLineIdx, 0, fromLine);
         const newText = newLines.join('\n');
-        // 重複內容卡 reorder 後,occurrence index 順序變,override 要跟著卡片走才不會跑到別張
-        setOverrides(prev => realignOverrides(text, newText, prev));
-        setText(newText);
+        // 顯式 reorder cardIds — 卡片 ID 跟著卡走,override 100% 對齊(包含重複內容卡)
+        const newIds = [...cardIds];
+        const [movedId] = newIds.splice(fromIdx, 1);
+        // 重算 toIdx 在 splice 後的位置
+        let targetIdsIdx = toIdx < fromIdx ? toIdx : toIdx - 1;
+        if (position === 'after') targetIdsIdx += 1;
+        newIds.splice(targetIdsIdx, 0, movedId);
+        updateText(newText, { newIds });
         // 若移到的卡片類型被 filter 過濾掉,目標卡會看不見 → 清 selection 比較不困惑
         const movedCard = cards[fromIdx];
         if (movedCard && !filterTypes.has(movedCard.type)) {
@@ -2412,9 +2458,13 @@ Chaser~阿明
 
       const cards = useMemo(() => {
         const parsed = parseSetlist(text);
-        const keys = buildCardKeys(parsed);
-        return parsed.map((c, i) => ({ ...c, ...(overrides[keys[i]] || {}), _key: keys[i] }));
-      }, [text, overrides]);
+        // _id 用 cardIds 對齊;mismatch(剛 setText 但 cardIds 還沒同步的瞬間)用 fallback,
+        // 不會 crash,下一個 render 就對齊
+        return parsed.map((c, i) => {
+          const id = cardIds[i] || `__pending-${i}`;
+          return { ...c, ...(overrides[id] || {}), _id: id, _key: id };
+        });
+      }, [text, overrides, cardIds]);
 
       const handleCardClick = (i, e) => {
         if (e) e.stopPropagation(); // 不讓 click 冒泡到 grid 容器,否則會立刻又 clearSelection
@@ -2442,18 +2492,18 @@ Chaser~阿明
 
       const updateCard = (i, partial) => {
         const c = cards[i];
-        if (!c || !c._key) return;
-        const { _key, ...rest } = partial;
-        setOverrides(o => ({ ...o, [c._key]: { ...(o[c._key] || {}), ...rest } }));
+        if (!c || !c._id) return;
+        const { _key, _id, ...rest } = partial;
+        setOverrides(o => ({ ...o, [c._id]: { ...(o[c._id] || {}), ...rest } }));
       };
       const updateMultipleCards = (ids, partial) => {
-        const { _key, ...rest } = partial;
+        const { _key, _id, ...rest } = partial;
         setOverrides(o => {
           const next = { ...o };
           ids.forEach(i => {
             const c = cards[i];
-            if (!c || !c._key) return;
-            next[c._key] = { ...(next[c._key] || {}), ...rest };
+            if (!c || !c._id) return;
+            next[c._id] = { ...(next[c._id] || {}), ...rest };
           });
           return next;
         });
@@ -2466,8 +2516,9 @@ Chaser~阿明
         if (i >= realIdxToLine.length) return;
         const newLines = lines.filter((_, idx) => idx !== realIdxToLine[i]);
         const newText = newLines.join('\n');
-        setOverrides(prev => realignOverrides(text, newText, prev));
-        setText(newText);
+        // 顯式從 cardIds 移除被刪那張的 ID — 其餘卡的 ID 完全不動,override 跟著卡
+        const newIds = cardIds.filter((_, idx) => idx !== i);
+        updateText(newText, { newIds });
         setSelectedIds(new Set());
       };
       const duplicateCard = (i) => {
@@ -2479,10 +2530,10 @@ Chaser~阿明
           const newLines = [...lines];
           newLines.splice(lineIdx + 1, 0, lines[lineIdx]);
           const newText = newLines.join('\n');
-          // 複製的新卡會 claim 第一個匹配,本來那張變成「第二個」拿到原 override —
-          // realign 確保 override 跟著「原本那張」(claim 順序),複製出的新卡是空的
-          setOverrides(prev => realignOverrides(text, newText, prev));
-          setText(newText);
+          // 複製出的新卡給新 UUID,原本那張保留原 ID 跟 override
+          const newIds = [...cardIds];
+          newIds.splice(i + 1, 0, generateCardId());
+          updateText(newText, { newIds });
         }
       };
 
@@ -2572,7 +2623,10 @@ Chaser~阿明
                 <span>Setlist Input</span>
                 {!text && (
                   <button
-                    onClick={() => setText(SAMPLE_TEXT)}
+                    onClick={() => {
+                      const sampleParsed = parseSetlist(SAMPLE_TEXT);
+                      updateText(SAMPLE_TEXT, { newIds: sampleParsed.map(() => generateCardId()) });
+                    }}
                     className="text-[#33ff85] hover:text-[#99ffaa] normal-case tracking-normal text-xs font-normal"
                   >
                     試試範例 →
@@ -2630,7 +2684,7 @@ Chaser~阿明
                 </div>
                 <textarea
                   value={text}
-                  onChange={e => setText(e.target.value)}
+                  onChange={e => updateText(e.target.value)}
                   placeholder="Paste your setlist here..."
                   wrap="off"
                   className="w-full h-full editor-area mono text-[13px] text-slate-200 placeholder-slate-600 bg-transparent resize-none focus:outline-none scrollbar-pretty"
@@ -2833,7 +2887,11 @@ Chaser~阿明
           <ParserModal
             open={showParser}
             onClose={() => setShowParser(false)}
-            onImport={(t) => setText(t)}
+            onImport={(t) => {
+              // 從 ParserModal import 的是全新的 setlist,給每張卡新 UUID
+              const importedParsed = parseSetlist(t);
+              updateText(t, { newIds: importedParsed.map(() => generateCardId()) });
+            }}
             geminiApiKey={geminiApiKey}
             setGeminiApiKey={setGeminiApiKey}
             geminiKeyError={geminiKeyError}

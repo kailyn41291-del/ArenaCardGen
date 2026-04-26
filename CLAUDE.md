@@ -115,6 +115,16 @@ pyinstaller --onefile --windowed \
 
 ## 協作規則
 
+### 不要 defer / 不要等下一版
+
+**遇到問題就現在修,不要分批、不要排隊到「下個版本再說」。** 不要說「先 ship 這版,下版再修」「這個是設計 trade-off」「這個技術 blocker 等之後處理」。如果有真的的 blocker(例如要付錢、要等第三方),直接講清楚不能修的根本原因,不要包裝成「下版再做」。
+
+例外:
+- 純付費障礙(code signing cert、第三方 API quota)— 直接告訴 user 是錢的問題,不要說「我之後處理」
+- 真的需要 user 動作的事(開 Developer Mode、提供帳號)— 直接列出 user 要做什麼,不要 vague 說「等之後」
+
+任何「之後再說」「下版再做」「先放著」的句型 = 拖延信號,**寫之前先問自己:這真的不能現在做嗎?**
+
 ### 嚴格審視機制(寫 code 的 Claude 必讀)
 
 User 要求對重大改動由獨立的 [strict-reviewer agent](.claude/agents/strict-reviewer.md) 做第二意見審視。**寫 code 的你不該自己評斷自己的工作,要主動 spawn reviewer**,把 reviewer 的結果原文回報給 user(不過濾、不軟化)。

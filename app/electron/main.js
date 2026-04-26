@@ -1,8 +1,15 @@
-const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, safeStorage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { autoUpdater } = require('electron-updater');
 
 const isDev = !app.isPackaged;
+
+// Auto-update Tier 2 設定 — 啟動後自動檢查 GitHub Releases,有新版自動下載並提示重啟安裝
+// 對 portable .exe 不 work,只支援 NSIS installer 跟 macOS dmg(zip 版會 silent skip)
+autoUpdater.autoDownload = true;       // 自動下載
+autoUpdater.autoInstallOnAppQuit = true; // app 退出時自動裝
+autoUpdater.allowPrerelease = true;     // beta 版也納入(因為我們現在主要是 prerelease)
 
 let mainWindow;
 
@@ -57,6 +64,29 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Auto-update — 只在 packaged build 跑(dev 跑會報錯找不到 update server)
+  if (!isDev) {
+    autoUpdater.on('update-downloaded', (info) => {
+      // 下載完成 → 跳 native dialog 問 user 要不要立刻重啟安裝
+      dialog.showMessageBox({
+        type: 'info',
+        buttons: ['立即重啟安裝', '稍後'],
+        defaultId: 0,
+        cancelId: 1,
+        title: '新版已下載',
+        message: `Arena Card Generator ${info.version} 已下載完成。`,
+        detail: '重啟 app 即可套用新版本。若選「稍後」,下次關閉 app 時會自動安裝。',
+      }).then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+    });
+    autoUpdater.on('error', (err) => {
+      // 不騷擾 user,log 出來給 dev 看;Tier 1 (renderer 內 toast) 仍會 fallback 通知
+      console.warn('[autoUpdater]', err.message);
+    });
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  }
 });
 
 app.on('window-all-closed', () => {
