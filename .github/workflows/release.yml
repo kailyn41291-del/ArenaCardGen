@@ -7,6 +7,10 @@ on:
     tags:
       - 'v*'
 
+# 給 GITHUB_TOKEN 寫 release 的權限(預設只有 read)
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -25,6 +29,17 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: app/package-lock.json
+
+      - name: Sync package.json version with git tag
+        working-directory: app
+        shell: bash
+        run: |
+          # 把 v0.3.0-beta3 → 0.3.0-beta3,寫進 package.json
+          # electron-builder 從 package.json 讀 version,filename 跟著對齊
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "const fs=require('fs');const p=require('./package.json');p.version='$VERSION';fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n');"
+          echo "Synced package.json version to $VERSION"
+          cat package.json | grep version
 
       - name: Install dependencies
         working-directory: app
