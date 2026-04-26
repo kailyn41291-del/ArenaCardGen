@@ -1,0 +1,68 @@
+name: Release Build
+
+# 觸發:push 任何 v* tag(例如 v0.3.0-beta2、v1.0.0)
+# 在 windows-latest + macos-latest 跑 build,artifact 自動 attach 到對應 release
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: app
+        env:
+          # 不簽名(沒買 cert);electron-builder 會自動嵌 icon
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win
+
+      - name: Build (macOS)
+        if: matrix.os == 'macos-latest'
+        working-directory: app
+        env:
+          # 不做 code signing / notarization (沒買 Apple Developer cert)
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --mac
+
+      - name: List artifacts
+        working-directory: app
+        shell: bash
+        run: ls -la dist/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 自動 match 觸發的 tag
+          files: |
+            app/dist/*.exe
+            app/dist/*.zip
+            app/dist/*.dmg
+            app/dist/*.blockmap
+            app/dist/latest*.yml
+          fail_on_unmatched_files: false
+          # prerelease 自動判斷:tag 含 beta / alpha / rc 就 prerelease
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
