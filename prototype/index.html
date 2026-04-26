@@ -1672,7 +1672,16 @@ Chaser~阿明
                 </div>
                 <textarea
                   value={text}
-                  onChange={e => setText(e.target.value)}
+                  onChange={e => {
+                    // 自動刪空行:filter 掉所有 trim 後是空的行
+                    // 保留最後一行(讓你按 Enter 後能在新行開始打字)
+                    const v = e.target.value;
+                    const lines = v.split('\n');
+                    const cleaned = lines.filter((l, i) =>
+                      l.trim() !== '' || i === lines.length - 1
+                    ).join('\n');
+                    setText(cleaned);
+                  }}
                   placeholder="Paste your setlist here..."
                   wrap="off"
                   className="w-full h-full editor-area mono text-[13px] text-slate-200 placeholder-slate-600 bg-transparent resize-none focus:outline-none scrollbar-pretty"
