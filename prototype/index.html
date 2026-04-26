@@ -1,0 +1,1878 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arena Card Generator — Prototype</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@500;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: 'Inter', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+      background: #050505;
+      color: #ececec;
+      overflow: hidden;
+    }
+    .mono { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+    /* 卡片內字體:Noto Sans TC 900 黑體前置,中英都厚 */
+    .card-font {
+      font-family: 'Inter', 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', 'Heiti TC', sans-serif;
+    }
+    .card-tex {
+      background:
+        radial-gradient(ellipse at 80% 10%, rgba(255,255,255,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 20% 90%, rgba(255,255,255,0.04) 0%, transparent 50%),
+        linear-gradient(135deg, #0c0c0d 0%, #15151a 50%, #0a0a0c 100%);
+    }
+    .card-tex-checker {
+      background-image:
+        linear-gradient(45deg, #2a2a30 25%, transparent 25%),
+        linear-gradient(-45deg, #2a2a30 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #2a2a30 75%),
+        linear-gradient(-45deg, transparent 75%, #2a2a30 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+      background-color: #1a1a20;
+    }
+    .glow-pink { box-shadow: 0 0 0 2px #ff0080, 0 0 30px rgba(255,0,128,0.5); }
+    .glow-pink-soft { box-shadow: 0 0 25px rgba(255,0,128,0.25); }
+    .card-container { container-type: inline-size; }
+    .scrollbar-pretty::-webkit-scrollbar { width: 10px; }
+    .scrollbar-pretty::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-pretty::-webkit-scrollbar-thumb { background: #2a2a30; border-radius: 5px; }
+    .scrollbar-pretty::-webkit-scrollbar-thumb:hover { background: #3a3a40; }
+
+    /* line numbers gutter */
+    .lineno {
+      position: absolute; left: 0; top: 0; bottom: 0; width: 44px;
+      padding: 1rem 0;
+      text-align: right; padding-right: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; color: #4a4a52; user-select: none;
+      pointer-events: none;
+      line-height: 1.5rem;
+    }
+    .editor-area {
+      padding-left: 56px; padding-right: 12px; padding-top: 1rem; padding-bottom: 1rem;
+      line-height: 1.5rem;
+      white-space: pre;          /* 不自動換行,長行水平 scroll */
+      overflow-x: auto;
+      overflow-y: auto;
+    }
+    /* 右邊 fade 提示「還有內容」 */
+    .editor-fade::after {
+      content: '';
+      position: absolute; top: 0; right: 0; bottom: 0; width: 28px;
+      background: linear-gradient(to right, transparent, #0a0a0c 75%);
+      pointer-events: none;
+    }
+
+    /* keyboard kbd */
+    kbd {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      padding: 2px 6px;
+      background: #1a1a20; border: 1px solid #2a2a30;
+      border-radius: 4px; color: #aaa;
+    }
+
+    /* fade-in for cards */
+    .card-enter {
+      animation: cardIn 200ms ease-out;
+    }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(8px) scale(0.96); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+    // ────────────────────────────────────────────────────────────────
+    // 清理 title:剝括號、重複 SONG 編號、舞台關鍵字、裝飾符號
+    // ────────────────────────────────────────────────────────────────
+    function cleanTitle(t) {
+      if (!t) return '';
+      // 括號(全形/半形)
+      t = t.replace(/[((][^))]*[))]/g, '').trim();
+      // HTML
+      t = t.replace(/<[^>]+>/g, '').trim();
+      // 時間標記
+      t = t.replace(/\s+\d+['‘’]\d+["\/].*$/, '').trim();
+      t = t.replace(/\s+\d+'\d+".*$/, '').trim();
+      // 重複的 SONG 編號 prefix(常見:S17 SONG 17:歌名 → 剝成「歌名」)
+      t = t.replace(/^(?:SONG\s+\d+|S\d+)\s*[:：.]\s*/i, '').trim();
+      t = t.replace(/^(?:SONG|ONG)\s+\d+\s*[:：.]\s*/i, '').trim();
+      // 舞台說明黑名單(分隔符後接關鍵字 → 從那裡截斷)
+      const stageKw = /[\s　、,,–—–+\-]+(?:舞者|服裝|服装|[\w]*道具|小舞台|大舞台|升降|左台|右台|合音|合唱|Bass|GT|gt|CO\d|鋼琴|鍵盤|钢琴|键盘|花朵|彩虹|彩條|氣球|風扇|风扇|噴桶|搖滾|摇滚|現身|退場|上場|下場|特製|特制|男舞|女舞|\*\d|樂手|配乐|竖琴|Disco|Intro|打造|人生|kb老師|kb老师|清唱)/i;
+      const m = t.match(stageKw);
+      if (m && m.index !== undefined) t = t.slice(0, m.index).trim();
+      // 壓縮空格
+      t = t.replace(/\s+/g, ' ');
+      // 裝飾符號
+      t = t.replace(/^[■★▶▷◆◇→←·。,、\/／　'"–—– \-]+|[■★▶▷◆◇→←·。,、\/／　'"–—– \-]+$/g, '');
+      return t;
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Mock parser - simplified version of parse_setlist
+    // Real Python parser will replace this when we wire up sidecar
+    // ────────────────────────────────────────────────────────────────
+    // 偵測明顯的雜訊行(YouTube 留言區、論壇 UI 等)
+    function isNoiseLine(t) {
+      if (!t) return true;
+
+      // 純數字 / 數字+短後綴(讚數、留言數)
+      if (/^\d+$/.test(t)) return true;
+      if (/^\d+(\.\d+)?\s*[KMkm]?$/.test(t)) return true;
+
+      // 時間標記:N 天前 / 週前 / 月前 / 小時前 / 年前 等
+      if (/^\d+\s*(天|週|周|月|小時|分鐘|分|秒|年|hour|day|week|month|year)s?\s*(前|ago)?\s*$/i.test(t)) return true;
+
+      // @mention 單獨一行(YouTube / Twitter 帳號)
+      if (/^@[\w一-鿿]+$/.test(t)) return true;
+
+      // UI 元素文字
+      const uiLabels = new Set([
+        '回覆', '分享', '儲存', '收藏', '超級感謝', '加入', '訂閱', '已訂閱',
+        '取消訂閱', '更多', '隱藏', '顯示', '顯示更多', '展開', '摺疊',
+        '發表留言', '發表留言...', '查看更多', '查看回覆', '輸入留言…',
+        'reply', 'share', 'save', 'subscribe', 'subscribed', 'more', 'show more',
+        '原始', 'original', '相關影片', '推薦', '推荐',
+      ]);
+      if (uiLabels.has(t.toLowerCase()) || uiLabels.has(t)) return true;
+
+      // N 則 留言 / 回覆
+      if (/^\d+\s*則\s*(留言|回覆)\s*$/.test(t)) return true;
+
+      // 觀看次數 / 訂閱者 數
+      if (/^觀看次數/.test(t)) return true;
+      if (/^\d+(\.\d+)?\s*[萬千]?\s*位\s*(訂閱者|追蹤者|關注者|粉絲|觀眾)/.test(t)) return true;
+      if (/^\d+(\.\d+)?\s*[KMkm]\s*(views?|subscribers?|followers?)/i.test(t)) return true;
+
+      return false;
+    }
+
+    function parseSetlist(text) {
+      if (!text.trim()) return [];
+      return text.split('\n')
+        .map(l => l.trim())
+        .filter(Boolean)
+        .filter(l => !/^-+$/.test(l))
+        .filter(l => !isNoiseLine(l))
+        .map((line) => {
+          // INTRO/ENCORE/OUTRO sections
+          let m = line.match(/^(INTRO|ENCORE|OUTRO)\s*[-–]\s*['"]?(.+?)['"]?$/i);
+          if (m) return { type: 'section', label: m[1].toUpperCase(), title: m[2].trim() };
+
+          // TALKING-N or Talking N
+          m = line.match(/^TALKING[\s-]*(\d+)/i);
+          if (m) return { type: 'talking', label: '', title: `TALKING-${m[1]}` };
+          m = line.match(/^Talking\s*(\d+)/i);
+          if (m) return { type: 'talking', label: '', title: `TALKING-${m[1]}` };
+
+          // 轉場 / 转场
+          m = line.match(/^[轉转][場场][_\s]*(.*)$/);
+          if (m) {
+            const rest = cleanTitle(m[1].trim());
+            return { type: 'transition', label: '轉場', title: rest || '' };
+          }
+
+          // Chaser
+          m = line.match(/^Chaser[~~]?\s*(.*)$/i);
+          if (m) {
+            const sub = cleanTitle(m[1].trim());
+            return { type: 'chaser', label: 'Chaser~', title: sub };
+          }
+
+          // S## title
+          m = line.match(/^S(\d+)[\s.:_]+(.+)$/i);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            return { type: 'song', label: `S${String(n).padStart(2, '0')}`, title: cleanTitle(m[2].trim()) };
+          }
+
+          // Numeric prefix "01. Title"
+          m = line.match(/^(\d+)[\s.:_]+(.+)$/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            return { type: 'song', label: `${String(n).padStart(2, '0')}.`, title: cleanTitle(m[2].trim()) };
+          }
+
+          // Default(整行當 title,也清理一下)
+          return { type: 'song', label: '', title: cleanTitle(line) || line };
+        });
+    }
+
+    // 動態 layout:嘗試多種切法,選字級最大的那個。
+    // 9+ 字 → 截斷到 8 字(不加 …)。
+    function chooseBestLayout(title, hasLabel) {
+      if (!title) return [];
+      let clean = title.replace(/[((][^))]*[))]/g, '').trim();
+      if (!clean) return [];
+
+      const isCJK = /[一-鿿]/.test(clean);
+
+      // 截斷(無 …)
+      if (isCJK && clean.length > 8) clean = clean.slice(0, 8);
+      else if (!isCJK && clean.length > 18) clean = clean.slice(0, 18).trim();
+
+      // 候選切法
+      const candidates = [[clean]];
+
+      if (isCJK) {
+        const n = clean.length;
+        if (n >= 4) {
+          const mid = Math.ceil(n / 2);
+          candidates.push([clean.slice(0, mid), clean.slice(mid)]);
+        }
+        if (n >= 7) {
+          const t = Math.ceil(n / 3);
+          candidates.push([clean.slice(0, t), clean.slice(t, t * 2), clean.slice(t * 2)]);
+        }
+      } else {
+        const words = clean.split(/\s+/);
+        if (words.length >= 2) {
+          const mid = Math.ceil(words.length / 2);
+          candidates.push([words.slice(0, mid).join(' '), words.slice(mid).join(' ')]);
+        }
+        if (words.length >= 3) {
+          const t = Math.ceil(words.length / 3);
+          candidates.push([
+            words.slice(0, t).join(' '),
+            words.slice(t, t * 2).join(' '),
+            words.slice(t * 2).join(' '),
+          ]);
+        }
+      }
+
+      // 評分:估算字級 = min(width-limit, height-limit),挑最大者
+      const charW = isCJK ? 1 : 0.55;
+      const labelRows = hasLabel ? 1.5 : 0;
+      function fontEstimate(ls) {
+        const maxLen = Math.max(...ls.map(l => l.length), 1);
+        const widthLimit = 88 / (maxLen * charW);
+        const totalRows = labelRows + ls.length + (ls.length - 1) * 0.1;
+        const heightLimit = 47 / totalRows;
+        return Math.min(widthLimit, heightLimit);
+      }
+
+      let best = candidates[0];
+      let bestScore = fontEstimate(best);
+      for (let i = 1; i < candidates.length; i++) {
+        const s = fontEstimate(candidates[i]);
+        if (s > bestScore) { bestScore = s; best = candidates[i]; }
+      }
+      return best;
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Messy RD parser - full port of parse_song_list_from_text from main.py
+    // Phase B 會被 Python sidecar HTTP call 取代
+    // ────────────────────────────────────────────────────────────────
+    function parseRdMessy(text) {
+      const lines = text.split('\n');
+      const results = [];
+      const seenTitles = new Set();
+
+      function clean(t) {
+        t = t.replace(/[((][^))]*[))]/g, '').trim();
+        t = t.replace(/<[^>]+>/g, '').trim();
+        t = t.replace(/\s+\d+['‘’]\d+["\/].*$/, '').trim();
+        t = t.replace(/\s+\d+'\d+".*$/, '').trim();
+
+        const stageKw = /[\s　、,,–—–]+(?:舞者|服裝|服装|[\w]*道具|小舞台|大舞台|升降|左台|右台|合音|合唱|Bass|GT|gt|CO\d|鋼琴|鍵盤|钢琴|键盘|花朵|彩虹|彩條|氣球|風扇|风扇|噴桶|搖滾|摇滚|現身|退場|上場|下場|特製|特制|男舞|女舞|\*\d|樂手|配乐|竖琴|Disco|Intro|打造|人生)/i;
+        const m = t.match(stageKw);
+        if (m && m.index !== undefined) {
+          t = t.slice(0, m.index).trim();
+        }
+        t = t.replace(/\s+/g, ' ');
+        return t.replace(/^[■★▶▷◆◇→←·。,、\/／　'"–—– ]+|[■★▶▷◆◇→←·。,、\/／　'"–—– ]+$/g, '');
+      }
+
+      for (const line of lines) {
+        const ls = line.trim();
+        if (!ls) continue;
+
+        // SONG / S## 編號
+        let m = ls.match(/SONG\s*(\d+)\s*[:：]\s*(.+)/i);
+        if (!m) m = ls.match(/\bS(\d+)\s*[:：.]\s*(.+)/i);
+        if (m) {
+          const num = parseInt(m[1], 10);
+          const title = clean(m[2]);
+          if (title && !seenTitles.has(title)) {
+            seenTitles.add(title);
+            results.push({ kind: 'song', num, title });
+          }
+          continue;
+        }
+
+        // Talking
+        m = ls.match(/Talking\s*(\d+)/i);
+        if (m) { results.push({ kind: 'talking', title: `TALKING-${m[1]}` }); continue; }
+        if (/^TALKING\s*[-\s]*\d+/i.test(ls)) {
+          const m2 = ls.match(/(\d+)/);
+          const num = m2 ? m2[1] : '';
+          results.push({ kind: 'talking', title: num ? `TALKING-${num}` : 'TALKING' });
+          continue;
+        }
+
+        // 轉場 / 转场
+        if (/^[轉转][場场]/.test(ls)) {
+          let rest = ls.replace(/^[轉转][場场]\s*/, '').trim();
+          let name;
+          if (/^VCR/i.test(rest)) {
+            const m2 = rest.match(/VCR\s*[-–]?\s*(\d+)?/i);
+            const num = m2 && m2[1] ? m2[1].trim() : '';
+            name = num ? `轉場_VCR ${num}` : '轉場_VCR';
+          } else {
+            rest = rest.replace(/^[_\-\s]+/, '').trim();
+            const numM = rest.match(/^(\d+)/);
+            if (numM) {
+              name = `轉場_${numM[1]}`;
+            } else if (rest) {
+              rest = rest.split(/\s*[-–—]\s*/)[0].trim();
+              name = rest ? `轉場_${rest}` : '轉場';
+            } else { name = '轉場'; }
+          }
+          results.push({ kind: 'transition', title: name });
+          continue;
+        }
+
+        // 行內 VCR
+        if (/\bVCR\b/i.test(ls)) {
+          const m2 = ls.match(/VCR[-\s]*(\w[\w\s]*)?/i);
+          const after = m2 && m2[1] ? m2[1].trim() : '';
+          let before = '';
+          const bm = ls.match(/^(.+?)\s+VCR/i);
+          if (bm) before = bm[1].replace(/[\d'"‘’]+/g, '').trim();
+          const label = clean(after || before);
+          results.push({ kind: 'transition', title: label ? `VCR ${label}` : 'VCR' });
+          continue;
+        }
+
+        // Chaser
+        m = ls.match(/Chaser[~~]?(.*)/i);
+        if (m) {
+          const sub = clean(m[1].trim());
+          results.push({ kind: 'chaser', title: sub ? `Chaser~${sub}` : 'Chaser' });
+          continue;
+        }
+      }
+
+      // 有 SONG 編號 → 結構化輸出
+      if (results.some(r => r.kind === 'song')) {
+        return results.map(r => {
+          if (r.kind === 'song') return `S${String(r.num).padStart(2, '0')} ${r.title}`;
+          if (r.kind === 'talking') return r.title;
+          if (r.kind === 'transition') {
+            return /^[轉转][場场]/.test(r.title) ? r.title : `轉場_${r.title}`;
+          }
+          if (r.kind === 'chaser') return r.title;
+          return '';
+        }).filter(Boolean).join('\n');
+      }
+
+      // 兩欄 fallback
+      const nonEmpty = lines.map(l => l.trim()).filter(Boolean);
+      const twoColCount = nonEmpty.filter(l =>
+        /\t|　|  +/.test(l) && l.split(/\t|　|  +/)[0].length <= 10
+      ).length;
+      if (twoColCount / Math.max(nonEmpty.length, 1) > 0.5) {
+        const titles = []; const seen = new Set();
+        for (const line of lines) {
+          const ls2 = line.trim();
+          if (!ls2) continue;
+          if (/歌曲|內容|歌名|曲目|歌手/.test(ls2)) continue;
+          if (/^[((].*[))]$/.test(ls2)) continue;
+          const parts = ls2.split(/\t|　|  +/);
+          if (parts.length >= 2) {
+            const t = clean(parts.slice(1).join(' ').trim());
+            if (t && !seen.has(t)) { seen.add(t); titles.push(t); }
+          }
+        }
+        if (titles.length) {
+          return titles.map((t, i) => `S${String(i + 1).padStart(2, '0')} ${t}`).join('\n');
+        }
+      }
+
+      // 每行就是歌名
+      const titles = []; const seen = new Set();
+      for (const line of lines) {
+        const ls2 = line.trim();
+        if (!ls2) continue;
+        if (/^[((].*[))]$/.test(ls2)) continue;
+        const t = clean(ls2);
+        if (t && !seen.has(t) && t.length >= 1 && t.length <= 60) {
+          seen.add(t); titles.push(t);
+        }
+      }
+      return titles.map((t, i) => `S${String(i + 1).padStart(2, '0')} ${t}`).join('\n');
+    }
+
+    // 內容導向的 stable key — 跨 reorder 不會跑掉
+    // 用 parsed values(type/label/title)組成,override 不影響 key
+    function cardKey(card) {
+      return `${card.type || 'x'}::${card.label || ''}::${card.title || ''}`;
+    }
+
+    // localStorage persistence — F5 不會掉資料
+    const STORAGE_KEY = 'arena-cardgen-state-v1';
+    function loadPersistedState() {
+      try {
+        const s = localStorage.getItem(STORAGE_KEY);
+        if (!s) return null;
+        return JSON.parse(s);
+      } catch { return null; }
+    }
+    function savePersistedState(state) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        return true;
+      } catch { return false; }
+    }
+
+    const TYPE_COLORS = {
+      song:       'text-white',
+      talking:    'text-yellow-300',
+      transition: 'text-pink-400',
+      chaser:     'text-red-400',
+      section:    'text-white',
+    };
+
+    // Hex 對應(用於 Canvas 渲染,跟 TYPE_COLORS 同步)
+    const TYPE_HEX = {
+      song:       '#FFFFFF',
+      talking:    '#FFFF00',
+      transition: '#FF0080',
+      chaser:     '#FF0000',
+      section:    '#FFFFFF',
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    // 真 1920×1080 PNG 渲染(用 Canvas)
+    // ────────────────────────────────────────────────────────────────
+    function renderCardToCanvas(card, settings, w = 1920, h = 1080) {
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+
+      if (!settings.transparent) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      const originalLabel = (card.label || '').trim();
+      const hasOriginalLabel = originalLabel.length > 0;
+
+      // 同 Card 元件邏輯:manualLines 第一行 = label(若原本有)
+      let labelText, titleLines;
+      if (card.manualLines && card.manualLines.trim()) {
+        const all = card.manualLines.split('\n').map(l => l.trim()).filter(Boolean);
+        if (hasOriginalLabel) {
+          labelText = all[0] || originalLabel;
+          titleLines = all.slice(1);
+        } else {
+          labelText = '';
+          titleLines = all;
+        }
+      } else {
+        labelText = originalLabel;
+        titleLines = chooseBestLayout(card.title, hasOriginalLabel);
+      }
+      const showLabel = labelText.length > 0;
+      if (titleLines.length === 0 && !showLabel) return canvas;
+
+      const color = card.colorOverride
+        || (settings.useTypeColors ? (TYPE_HEX[card.type] || '#FFFFFF') : (settings.textColor || '#FFFFFF'));
+
+      const padX = w * 0.04;
+      const padY = h * 0.05;
+      const availW = w - padX * 2;
+      const availH = h - padY * 2;
+
+      // 字級計算(對應 Card 元件邏輯,單位用實際 px)
+      const titleMaxLen = Math.max(...titleLines.map(l => l.length), 1);
+      const isCJK = /[一-鿿]/.test(titleLines.join('') + labelText);
+      const charW = isCJK ? 1 : 0.55;
+      const labelMultiplier = showLabel ? 1.5 : 0;
+      const titleRows = Math.max(titleLines.length, 0);
+      const totalRowFactor = labelMultiplier + titleRows + Math.max(titleRows - 1, 0) * 0.1;
+      const heightLimit = totalRowFactor > 0 ? availH / totalRowFactor : availH;
+      const widthLimit = titleRows > 0 ? availW / (titleMaxLen * charW) : Infinity;
+      const labelLen = labelText.length || 1;
+      const labelWidthLimit = (availW / (labelLen * 0.55)) / 1.5;
+      const baseSize = Math.max(8, Math.min(heightLimit, widthLimit, labelWidthLimit));
+      const titleFontSize = baseSize;
+      const labelFontSize = baseSize * 1.5;
+
+      const fontFamily = '900 {SIZE}px Inter, "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+
+      const labelHeight = showLabel ? labelFontSize : 0;
+      const labelGap = showLabel ? labelFontSize * 0.06 : 0;
+      const titleLineHeight = titleFontSize * 1.05;
+      const titleTotal = titleRows * titleLineHeight;
+      const totalHeight = labelHeight + labelGap + titleTotal;
+
+      let y = (h - totalHeight) / 2;
+
+      if (showLabel) {
+        ctx.font = fontFamily.replace('{SIZE}', labelFontSize.toFixed(0));
+        ctx.fillText(labelText.toUpperCase(), w / 2, y);
+        y += labelHeight + labelGap;
+      }
+
+      ctx.font = fontFamily.replace('{SIZE}', titleFontSize.toFixed(0));
+      for (const line of titleLines) {
+        ctx.fillText(line.toUpperCase(), w / 2, y);
+        y += titleLineHeight;
+      }
+
+      return canvas;
+    }
+
+    // 安全檔名(白名單:中文 + 英數 + _ - ~ 空格)
+    function safeFilename(s) {
+      return (s || '').replace(/[^\w一-鿿~\- ]/g, '').trim().replace(/\s+/g, '_');
+    }
+
+    function buildFilename(card, idx) {
+      const num = String(idx + 1).padStart(2, '0');
+      const label = safeFilename(card.label || '');
+      const title = safeFilename(card.title || '');
+      const parts = [num];
+      if (label) parts.push(label);
+      if (title) parts.push(title);
+      return parts.join('_') + '.png';
+    }
+
+    // 匯出全部到 ZIP
+    async function exportAllToZip(cards, settings, onProgress) {
+      const zip = new JSZip();
+      const fileEntries = [];
+
+      for (let i = 0; i < cards.length; i++) {
+        const c = cards[i];
+        const canvas = renderCardToCanvas(c, settings);
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        const fname = buildFilename(c, i);
+        zip.file(fname, blob);
+        fileEntries.push({ idx: i + 1, total: cards.length, name: fname });
+        if (onProgress) onProgress(i + 1, cards.length, fname);
+        // 讓 UI 有機會更新
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `arena-cards-${new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return fileEntries;
+    }
+
+    const TYPE_LABEL = {
+      song: 'Song',
+      talking: 'Talking',
+      transition: 'Transition',
+      chaser: 'Chaser',
+      section: 'Section',
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    // Icons (inline SVG, lucide-style stroke)
+    // ────────────────────────────────────────────────────────────────
+    const Icon = {
+      file: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
+      settings: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+      upload: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+      stack: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>,
+      arrowRight: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+      check: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="20 6 9 17 4 12"/></svg>,
+      close: (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+      logo: (p) => <svg viewBox="0 0 40 40" fill="none" {...p}>
+        <rect x="0" y="0" width="40" height="40" rx="9" fill="url(#g)"/>
+        <path d="M11 27 L20 11 L29 27 M14.5 22 L25.5 22" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+        <defs><linearGradient id="g" x1="0" y1="0" x2="40" y2="40">
+          <stop offset="0" stopColor="#ff3399"/><stop offset="1" stopColor="#cc0066"/>
+        </linearGradient></defs>
+      </svg>,
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    // Card component
+    // ────────────────────────────────────────────────────────────────
+    function Card({ card, idx, isSelected, onClick, transparent, useTypeColors, customColor }) {
+      // 任何非空 label 都顯示大字 prefix(S## / INTRO / 轉場 / Chaser~ 等)
+      const originalLabel = (card.label || '').trim();
+      const hasOriginalLabel = originalLabel.length > 0;
+
+      // manualLines 內容:第一行 = label(若原本有),其餘 = title rows
+      const { labelText, lines } = useMemo(() => {
+        if (card.manualLines && card.manualLines.trim()) {
+          const all = card.manualLines.split('\n').map(l => l.trim()).filter(Boolean);
+          if (hasOriginalLabel) {
+            return { labelText: all[0] || originalLabel, lines: all.slice(1) };
+          }
+          return { labelText: '', lines: all };
+        }
+        return {
+          labelText: originalLabel,
+          lines: chooseBestLayout(card.title, hasOriginalLabel),
+        };
+      }, [card.title, card.manualLines, originalLabel, hasOriginalLabel]);
+      const showLabel = labelText.length > 0;
+      const colorClass = useTypeColors ? TYPE_COLORS[card.type] : null;
+      const inlineStyle = !useTypeColors && customColor ? { color: customColor } : {};
+
+      // 字級計算
+      const titleMaxLen = Math.max(...lines.map(l => l.length), 1);
+      const isCJK = /[一-鿿]/.test(lines.join(''));
+      const charWidthRatio = isCJK ? 1 : 0.55;
+
+      // 標題字級(基於每行最長 + 行數)
+      // 卡片高度 = width * 9/16 = 56.25cqw,扣掉 padding 約 47cqw 可用
+      // 若有 label 1 行(1.5×) + title N 行 = (1.5 + N) 倍 base
+      // 若無 label,純 title N 行 = N 倍 base
+      const labelMultiplier = showLabel ? 1.5 : 0;
+      const totalRowFactor = labelMultiplier + lines.length + (lines.length - 1) * 0.1; // 0.1 for gaps
+      const heightConstrainedBase = 47 / totalRowFactor;
+      // 寬度限制(每行字數)
+      const widthConstrainedBase = 88 / (titleMaxLen * charWidthRatio);
+      // label 寬度限制(label 通常 2-4 字英文)
+      const labelLen = labelText.length || 1;
+      const labelWidthBase = (88 / (labelLen * 0.55)) / 1.5; // 1.5× scale
+      const baseSize = Math.max(8, Math.min(heightConstrainedBase, widthConstrainedBase, labelWidthBase));
+
+      const titleFontSize = baseSize.toFixed(1);
+      const labelFontSize = (baseSize * 1.5).toFixed(1);
+
+      return (
+        <div className="flex flex-col gap-1.5 card-enter card-container">
+          <button
+            onClick={onClick}
+            className={`
+              aspect-video rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden
+              ${transparent ? 'card-tex-checker' : 'card-tex'}
+              border transition-all duration-150 cursor-pointer outline-none
+              ${isSelected
+                ? 'border-pink-500/90 glow-pink scale-[1.025]'
+                : 'border-slate-800/60 hover:border-slate-600/80 hover:scale-[1.015]'}
+            `}
+          >
+            {isSelected && (
+              <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-pink-500 flex items-center justify-center text-white shadow-lg shadow-pink-500/50 z-10">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+            )}
+            <div
+              className={`text-center card-font ${colorClass || ''} font-black uppercase tracking-tight leading-[0.92] select-none w-full flex flex-col items-center justify-center`}
+              style={inlineStyle}
+            >
+              {showLabel && (
+                <div style={{ fontSize: `${labelFontSize}cqw`, lineHeight: 1, marginBottom: '0.06em' }}>
+                  {labelText}
+                </div>
+              )}
+              {lines.map((l, i) => (
+                <div key={i} style={{ fontSize: `${titleFontSize}cqw`, lineHeight: 1.05 }}>{l}</div>
+              ))}
+            </div>
+          </button>
+          <div className="px-1 text-[11px] text-slate-500 mono tracking-wider flex items-center justify-between">
+            <span>#{idx + 1}{labelText && ` · ${labelText}`}</span>
+            <span className="text-slate-700">{lines.length} 行 · {titleMaxLen} 字</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Card Edit Panel(slide-in from right)
+    // ────────────────────────────────────────────────────────────────
+    const TEXT_COLORS = [
+      { name: '白', hex: '#FFFFFF' },
+      { name: '紅', hex: '#FF0000' },
+      { name: '粉', hex: '#FF0080' },
+      { name: '黃', hex: '#FFFF00' },
+    ];
+
+    function CardEditPanel({ card, idx, onUpdate, onDelete, onDuplicate }) {
+      if (!card) return null;
+
+      const safeLabel = String(card.label || '').trim();
+      const safeTitle = String(card.title || '');
+
+      // 編輯區預填「完整原文」(只剝 parens,不截斷)
+      const autoLines = useMemo(() => {
+        const cleanFull = safeTitle.replace(/[((][^))]*[))]/g, '').trim();
+        return [safeLabel, cleanFull].filter(Boolean).join('\n');
+      }, [safeLabel, safeTitle]);
+
+      // 卡片實際渲染的 lines(會被 8 字截斷)— 用來顯示「目前顯示」預覽
+      const renderedLines = useMemo(() => {
+        try {
+          const titleLines = chooseBestLayout(safeTitle, !!safeLabel) || [];
+          return [safeLabel, ...titleLines].filter(Boolean);
+        } catch (e) {
+          console.error('renderedLines error:', e);
+          return safeLabel ? [safeLabel] : [];
+        }
+      }, [safeLabel, safeTitle]);
+
+      // 偵測:原文有沒有超過 8 字導致截斷
+      const cleanFullTitle = safeTitle.replace(/[((][^))]*[))]/g, '').trim();
+      const isCJK = /[一-鿿]/.test(cleanFullTitle);
+      const isTruncated = (isCJK && cleanFullTitle.length > 8) || (!isCJK && cleanFullTitle.length > 18);
+
+      const initialDraft = card.manualLines || autoLines;
+
+      const [type, setType] = useState(card.type);
+      const [color, setColor] = useState(card.colorOverride || '#FF0080');
+      const [useOverride, setUseOverride] = useState(!!card.colorOverride);
+      const [linesDraft, setLinesDraft] = useState(initialDraft);
+      const hasLineOverride = !!card.manualLines;
+
+      // 切換到別張卡 → 重新初始化
+      useEffect(() => {
+        setType(card.type);
+        setColor(card.colorOverride || '#FF0080');
+        setUseOverride(!!card.colorOverride);
+        setLinesDraft(card.manualLines || autoLines);
+      }, [card._key]);
+
+      // 同步 type / color override 到 store(linesDraft 走另一條 onChange)
+      useEffect(() => {
+        onUpdate(idx, {
+          ...card,
+          type,
+          colorOverride: useOverride ? color : null,
+        });
+      }, [type, color, useOverride]);
+
+      // linesDraft 改變 → 判斷是否變成 override
+      const onLinesChange = (val) => {
+        setLinesDraft(val);
+        if (val.trim() === '' || val === autoLines) {
+          // 空 或 跟自動一樣 → 清掉 override
+          onUpdate(idx, { ...card, manualLines: null });
+        } else {
+          onUpdate(idx, { ...card, manualLines: val });
+        }
+      };
+
+      const revertToAuto = () => {
+        setLinesDraft(autoLines);
+        onUpdate(idx, { ...card, manualLines: null });
+      };
+
+      return (
+        <div className="h-full flex flex-col">
+          <div className="px-5 py-4 border-b border-slate-800/60">
+            <div className="text-[10px] uppercase tracking-widest text-pink-400">編輯字卡 · 單選</div>
+            <div className="text-lg font-semibold mt-0.5">#{idx + 1} · {safeLabel || safeTitle.slice(0, 8) || '(空白)'}</div>
+          </div>
+
+            <div className="flex-1 overflow-auto scrollbar-pretty p-5 space-y-5">
+              {/* Card lines — 直接編輯字卡內容,Enter 換行 */}
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[11px] uppercase tracking-widest text-slate-500">
+                    字卡內容 <span className="text-slate-600 normal-case tracking-normal">(Enter 換行)</span>
+                  </label>
+                  {hasLineOverride ? (
+                    <button
+                      onClick={revertToAuto}
+                      className="text-[11px] px-2 py-0.5 rounded bg-pink-500/15 text-pink-300 hover:bg-pink-500/25 transition"
+                      title="清除手動切行,回到自動 layout"
+                    >
+                      ↻ 還原自動
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-emerald-500/70">自動 layout</span>
+                  )}
+                </div>
+                <textarea
+                  value={linesDraft || ''}
+                  onChange={e => onLinesChange(e.target.value)}
+                  onKeyDown={e => e.stopPropagation()}
+                  rows={4}
+                  className={`w-full card-font text-base font-black uppercase px-3 py-2.5 rounded-lg border focus:outline-none resize-none leading-tight tracking-tight ${
+                    hasLineOverride
+                      ? 'bg-pink-500/5 border-pink-500/40 focus:border-pink-500/80'
+                      : 'bg-slate-800/40 border-slate-700/50 focus:border-pink-500/60'
+                  }`}
+                />
+
+                {/* 截斷警示 + 實際渲染預覽 */}
+                {!hasLineOverride && isTruncated && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300/90 leading-relaxed">
+                    <div className="font-semibold mb-1">⚠ 自動 layout 截斷規則生效</div>
+                    <div className="text-amber-200/70 mb-1.5">
+                      原文 {cleanFullTitle.length} 字 &gt; 8 字 → 卡片只顯示前 8 字。
+                    </div>
+                    <div className="text-amber-200/60">目前實際顯示:</div>
+                    <div className="mono text-amber-100 font-bold mt-1 pl-2 border-l-2 border-amber-500/40">
+                      {renderedLines.map((l, i) => <div key={i}>{l}</div>)}
+                    </div>
+                    <div className="text-amber-200/60 mt-1.5">
+                      💡 編輯上方文字 = 手動切行,不受 8 字限制(可分多行容納全部內容)。
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-[10px] text-slate-600 mt-1.5 leading-relaxed">
+                  {hasLineOverride
+                    ? '已手動 override。改回跟原文相同 → 自動清除 override。'
+                    : '預設顯示原文。直接打字就會 override 自動 layout。'}
+                </div>
+              </section>
+
+              {/* Type */}
+              <section>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">類型</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(TYPE_LABEL).filter(([k]) => k !== 'section').map(([k, label]) => (
+                    <button
+                      key={k}
+                      onClick={() => setType(k)}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium border transition ${
+                        type === k
+                          ? 'bg-pink-500/15 border-pink-500/60 text-pink-300'
+                          : 'bg-slate-800/30 border-slate-700/50 hover:border-slate-600/80 text-slate-300'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {/* Color */}
+              <section>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[11px] uppercase tracking-widest text-slate-500">文字色 override</label>
+                  <button
+                    onClick={() => setUseOverride(!useOverride)}
+                    className={`text-xs px-2 py-0.5 rounded ${useOverride ? 'bg-pink-500/20 text-pink-300' : 'bg-slate-800 text-slate-400'}`}
+                  >
+                    {useOverride ? 'override 中' : '依類型自動'}
+                  </button>
+                </div>
+                <div className={`flex items-center gap-2 ${!useOverride ? 'opacity-40 pointer-events-none' : ''}`}>
+                  {TEXT_COLORS.map(c => (
+                    <button
+                      key={c.hex}
+                      onClick={() => { setColor(c.hex); setUseOverride(true); }}
+                      className={`w-9 h-9 rounded-full border-2 transition ${
+                        color.toLowerCase() === c.hex.toLowerCase() && useOverride
+                          ? 'border-pink-500 scale-110'
+                          : 'border-slate-700 hover:border-slate-500'
+                      }`}
+                      style={{ backgroundColor: c.hex }}
+                      title={c.name}
+                    />
+                  ))}
+                  <div className="flex-1" />
+                  <input
+                    type="color"
+                    value={color}
+                    onChange={e => { setColor(e.target.value); setUseOverride(true); }}
+                    className="w-9 h-9 rounded cursor-pointer border-2 border-slate-700"
+                  />
+                </div>
+                <input
+                  type="text"
+                  value={color.toUpperCase()}
+                  onChange={e => { setColor(e.target.value); setUseOverride(true); }}
+                  className={`mt-2 w-full mono text-xs px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 focus:border-pink-500/60 focus:outline-none ${!useOverride ? 'opacity-40' : ''}`}
+                  disabled={!useOverride}
+                />
+              </section>
+
+            </div>
+
+          <div className="border-t border-slate-800/60 p-4 flex gap-3">
+            <button
+              onClick={() => onDelete(idx)}
+              className="flex-1 py-2.5 rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/10 text-sm font-medium transition"
+            >
+              刪除
+            </button>
+            <button
+              onClick={() => onDuplicate(idx)}
+              className="flex-1 py-2.5 rounded-lg bg-pink-500 hover:bg-pink-400 text-white text-sm font-semibold transition shadow-lg shadow-pink-500/30"
+            >
+              複製
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Bulk Edit Panel(2+ 張選取時)
+    // ────────────────────────────────────────────────────────────────
+    function BulkEditPanel({ ids, cards, onApply, onClear }) {
+      const previewCards = ids.slice(0, 6).map(i => cards[i]).filter(Boolean);
+      const moreCount = ids.length - previewCards.length;
+
+      const applyColor = (hex) => onApply(ids, { colorOverride: hex });
+      const clearColor = () => onApply(ids, { colorOverride: null });
+      const applyType = (type) => onApply(ids, { type });
+
+      return (
+        <div className="h-full flex flex-col">
+          <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-pink-400">多選編輯</div>
+              <div className="text-lg font-semibold mt-0.5">{ids.length} 張字卡</div>
+            </div>
+            <button onClick={onClear} className="text-xs px-2.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
+              取消選取
+            </button>
+          </div>
+
+            {/* 預覽縮圖列 */}
+            <div className="px-5 py-3 border-b border-slate-800/40">
+              <div className="grid grid-cols-3 gap-1.5">
+                {previewCards.map((c, i) => (
+                  <div key={i} className="card-tex aspect-video rounded border border-pink-500/40 flex items-center justify-center text-[10px] text-white font-bold uppercase tracking-tight px-1 truncate">
+                    {(c.label ? c.label + ' ' : '') + c.title.slice(0, 6)}
+                  </div>
+                ))}
+                {moreCount > 0 && (
+                  <div className="aspect-video rounded bg-slate-800/40 border border-slate-700/40 flex items-center justify-center text-xs text-slate-400">
+                    +{moreCount}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto scrollbar-pretty p-5 space-y-5">
+              {/* 一次改顏色 */}
+              <section>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">套用文字色到全部</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {TEXT_COLORS.map(c => (
+                    <button
+                      key={c.hex}
+                      onClick={() => applyColor(c.hex)}
+                      className="aspect-square rounded-xl border-2 border-slate-700 hover:border-pink-500 hover:scale-105 transition flex flex-col items-center justify-center gap-1.5"
+                      style={{ backgroundColor: c.hex }}
+                    >
+                      <div className="text-xs font-bold mix-blend-difference text-white">{c.name}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <input
+                    type="color"
+                    onChange={e => applyColor(e.target.value)}
+                    className="w-12 h-10 rounded cursor-pointer border-2 border-slate-700"
+                    title="自訂"
+                  />
+                  <button onClick={clearColor} className="flex-1 py-2.5 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 text-sm transition">
+                    清除 override(回到自動)
+                  </button>
+                </div>
+              </section>
+
+              {/* 一次改類型 */}
+              <section>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">套用類型到全部</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(TYPE_LABEL).filter(([k]) => k !== 'section').map(([k, label]) => (
+                    <button
+                      key={k}
+                      onClick={() => applyType(k)}
+                      className="px-3 py-2.5 rounded-lg text-sm font-medium border border-slate-700/50 bg-slate-800/30 hover:border-pink-500/60 hover:bg-pink-500/10 transition"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+          <div className="pt-2 px-5 pb-5 text-xs text-slate-500 leading-relaxed border-t border-slate-800/40">
+            <div className="font-semibold text-slate-400 mb-1 mt-3">提示</div>
+            點任何顏色或類型即立即套用到 {ids.length} 張選中的卡片。<br/>
+            按 <kbd>Esc</kbd> 取消選取。
+          </div>
+        </div>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Settings Modal
+    // ────────────────────────────────────────────────────────────────
+    function SettingsModal({ open, onClose, settings, setSettings }) {
+      if (!open) return null;
+
+      const set = (k, v) => setSettings(s => ({ ...s, [k]: v }));
+
+      return (
+        <>
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40" onClick={onClose} />
+          <div className="fixed top-0 right-0 bottom-0 w-[420px] bg-[#0c0c10] border-l border-slate-800/80 z-50 flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800/60">
+              <h2 className="text-xl font-semibold tracking-tight">設定</h2>
+              <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
+                <Icon.close className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto scrollbar-pretty p-6 space-y-6">
+              <section>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">預設文字色</label>
+                <div className="flex gap-3">
+                  {TEXT_COLORS.map(c => (
+                    <button
+                      key={c.hex}
+                      onClick={() => set('textColor', c.hex)}
+                      className={`w-12 h-12 rounded-full border-2 transition ${
+                        settings.textColor.toLowerCase() === c.hex.toLowerCase()
+                          ? 'border-pink-500 scale-110 glow-pink-soft'
+                          : 'border-slate-700 hover:border-slate-500'
+                      }`}
+                      style={{ backgroundColor: c.hex }}
+                      title={c.name}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <Toggle
+                label="按類型自動配色"
+                desc="歌曲=白、TALKING=黃、轉場=粉、Chaser=紅"
+                checked={settings.useTypeColors}
+                onChange={v => set('useTypeColors', v)}
+              />
+
+              <Toggle
+                label="背景透明 (PNG alpha)"
+                desc="預覽顯示棋盤格"
+                checked={settings.transparent}
+                onChange={v => set('transparent', v)}
+              />
+
+              <section>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">5 字切法</label>
+                <div className="flex bg-slate-800/30 border border-slate-700/50 rounded-lg p-1">
+                  {['3/2', '2/3'].map(opt => (
+                    <button
+                      key={opt}
+                      onClick={() => set('split5', opt)}
+                      className={`flex-1 py-2 text-sm rounded transition ${
+                        settings.split5 === opt
+                          ? 'bg-pink-500 text-white font-semibold'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <Toggle
+                label="智慧斷詞 (jieba)"
+                desc="7+ 字標題優先按詞邊界切"
+                checked={settings.useJieba}
+                onChange={v => set('useJieba', v)}
+              />
+
+              <Toggle
+                label="啟動時檢查更新"
+                desc="不會自動下載,只通知"
+                checked={settings.checkUpdate}
+                onChange={v => set('checkUpdate', v)}
+              />
+            </div>
+
+            <div className="border-t border-slate-800/60 px-6 py-3 text-[11px] text-slate-600 flex justify-between">
+              <span>v0.3.0-prototype</span>
+              <span>shortcuts: Ctrl+Z / Delete / Alt+↑↓</span>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    function Toggle({ label, desc, checked, onChange }) {
+      return (
+        <section className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <div className="text-sm font-medium">{label}</div>
+            {desc && <div className="text-xs text-slate-500 mt-0.5">{desc}</div>}
+          </div>
+          <button
+            onClick={() => onChange(!checked)}
+            className={`relative w-11 h-6 rounded-full transition ${checked ? 'bg-pink-500' : 'bg-slate-700'}`}
+          >
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition ${checked ? 'left-[22px]' : 'left-0.5'}`} />
+          </button>
+        </section>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Rundown Parser Modal
+    // ────────────────────────────────────────────────────────────────
+    function ParserModal({ open, onClose, onImport }) {
+      const [raw, setRaw] = useState('');
+      const [result, setResult] = useState('');
+      const [lang, setLang] = useState('繁');
+      const [status, setStatus] = useState('');
+
+      if (!open) return null;
+
+      const doParse = () => {
+        if (!raw.trim()) { setStatus('請先貼入文字'); return; }
+        const out = parseRdMessy(raw);
+        setResult(out);
+        const count = out.split('\n').filter(Boolean).length;
+        setStatus(count ? `✓ 找到 ${count} 個項目` : '找不到可辨識的內容');
+      };
+
+      return (
+        <>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-40" onClick={onClose} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
+            <div className="bg-[#0c0c10] border border-slate-800/80 rounded-2xl w-full max-w-5xl h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800/60">
+                <div>
+                  <h2 className="text-xl font-semibold tracking-tight">Rundown 排序辨識器</h2>
+                  <p className="text-xs text-slate-500 mt-1">貼入任意格式 RD → 自動辨識 → 匯入主視窗</p>
+                </div>
+                <button onClick={onClose} className="w-9 h-9 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
+                  <Icon.close className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="flex-1 grid grid-cols-2 gap-4 p-6 overflow-hidden">
+                <div className="flex flex-col bg-slate-900/30 rounded-xl border border-slate-800/50 overflow-hidden">
+                  <div className="px-4 py-2.5 text-[11px] uppercase tracking-widest text-slate-500 border-b border-slate-800/50">原始 RD</div>
+                  <textarea
+                    value={raw}
+                    onChange={e => setRaw(e.target.value)}
+                    placeholder={`貼入任意格式歌單,例如:\n\n08:00 PM - INTRO VJ\n08:05 PM - Song 1: 'Starlight' (Band A)\n08:10 PM - Talking / Tuning\n08:15 PM - Song 2: 'Neon City' (Band B)`}
+                    className="flex-1 mono text-sm p-4 bg-transparent resize-none focus:outline-none text-slate-200 placeholder-slate-600"
+                    spellCheck="false"
+                  />
+                </div>
+                <div className="flex flex-col bg-emerald-950/20 rounded-xl border border-emerald-900/40 overflow-hidden">
+                  <div className="px-4 py-2.5 text-[11px] uppercase tracking-widest text-emerald-500/80 border-b border-emerald-900/40">辨識結果</div>
+                  <textarea
+                    value={result}
+                    onChange={e => setResult(e.target.value)}
+                    className="flex-1 mono text-sm p-4 bg-transparent resize-none focus:outline-none text-emerald-300"
+                    spellCheck="false"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-slate-800/60 px-6 py-4 flex items-center gap-3">
+                <button
+                  onClick={doParse}
+                  className="px-5 py-2.5 rounded-lg bg-pink-500 hover:bg-pink-400 text-white text-sm font-semibold transition shadow-lg shadow-pink-500/30 flex items-center gap-2"
+                >
+                  自動辨識歌名
+                </button>
+                <div className="flex bg-slate-800/40 border border-slate-700/50 rounded-lg p-0.5">
+                  {['繁', '簡'].map(L => (
+                    <button
+                      key={L}
+                      onClick={() => setLang(L)}
+                      className={`px-3 py-1.5 text-xs rounded transition ${lang === L ? 'bg-slate-700 text-white' : 'text-slate-400'}`}
+                    >
+                      {L === '繁' ? '繁體' : '简体'}
+                    </button>
+                  ))}
+                </div>
+                {status && (
+                  <div className={`text-xs ml-2 ${status.startsWith('✓') ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {status}
+                  </div>
+                )}
+                <div className="flex-1" />
+                <button
+                  onClick={() => { setRaw(''); setResult(''); setStatus(''); }}
+                  className="px-4 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 text-sm transition"
+                >
+                  清除
+                </button>
+                <button
+                  onClick={() => { if (result) { onImport(result); onClose(); } }}
+                  disabled={!result}
+                  className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
+                    result
+                      ? 'bg-slate-700 hover:bg-slate-600 text-white'
+                      : 'bg-slate-800/40 text-slate-600 cursor-not-allowed'
+                  }`}
+                >
+                  匯入主視窗
+                  <Icon.arrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Pre-Export Checklist
+    // ────────────────────────────────────────────────────────────────
+    function ExportChecklist({ open, cards, fontsReady, onClose, onConfirm }) {
+      if (!open) return null;
+      const empties = cards.filter(c => !c.title).length;
+      const truncated = cards.filter(c => {
+        const t = (c.title || '').replace(/[((][^))]*[))]/g, '').trim();
+        const isCJK = /[一-鿿]/.test(t);
+        return (isCJK && t.length > 8) || (!isCJK && t.length > 18);
+      }).length;
+      const dupes = cards.length - new Set(cards.map(c => `${c.label}_${c.title}`)).size;
+
+      const checks = [
+        { ok: !!fontsReady,         label: '字型載入', detail: fontsReady ? 'Inter + 中文字型 OK' : '載入中…' },
+        { ok: empties === 0,        label: '空字卡',   detail: empties === 0 ? '無' : `${empties} 張` },
+        { ok: dupes === 0,          label: '檔名重複', detail: dupes === 0 ? '0' : `${dupes} 組(會合併)` },
+        { ok: truncated === 0,      label: '標題截斷', detail: truncated === 0 ? '無' : `${truncated} 張會被截斷至 8 字` },
+      ];
+      const allOk = checks.every(c => c.ok);
+      const canExport = fontsReady;
+
+      return (
+        <>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-40" onClick={onClose} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
+            <div className="bg-[#0c0c10] border border-slate-800/80 rounded-2xl w-full max-w-md shadow-2xl">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/60">
+                <h2 className="text-lg font-semibold">匯出前檢查</h2>
+                <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
+                  <Icon.close className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+              <div className="p-6 space-y-3">
+                {checks.map((c, i) => (
+                  <div key={i} className="flex items-center gap-3 py-1">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center ${c.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                      {c.ok ? <Icon.check className="w-4 h-4" /> : '⚠'}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm">{c.label}</div>
+                      <div className="text-xs text-slate-500">{c.detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="px-6 pb-6 pt-2">
+                <button
+                  onClick={onConfirm}
+                  disabled={!canExport}
+                  className={`w-full py-3.5 rounded-xl text-base font-bold transition ${
+                    !canExport
+                      ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                      : allOk
+                      ? 'bg-pink-500 hover:bg-pink-400 text-white shadow-lg shadow-pink-500/40'
+                      : 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/30'
+                  }`}
+                >
+                  {!canExport ? '字型載入中…' : allOk ? `匯出 ${cards.length} 張 PNG (zip)` : `仍要匯出 ${cards.length} 張(有警告)`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Export Progress(canvas → png → zip)
+    // ────────────────────────────────────────────────────────────────
+    function ExportProgress({ state, onClose }) {
+      if (!state) return null;
+      const pct = state.total > 0 ? Math.round((state.current / state.total) * 100) : 0;
+      return (
+        <>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-40" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
+            <div className="bg-[#0c0c10] border border-slate-800/80 rounded-2xl w-full max-w-md shadow-2xl">
+              <div className="px-6 py-5 border-b border-slate-800/60 flex items-center justify-between">
+                <h2 className="text-lg font-semibold">{state.complete ? '✓ 匯出完成' : '匯出中'}</h2>
+                {state.complete && (
+                  <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
+                    <Icon.close className="w-4 h-4 text-slate-400" />
+                  </button>
+                )}
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="text-sm text-slate-300">
+                  {state.complete
+                    ? `已產出 ZIP(${state.total} 張字卡)— 應該已自動下載`
+                    : `正在渲染 ${state.current} / ${state.total}…`}
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full bg-pink-500 transition-all duration-200"
+                    style={{ width: `${state.complete ? 100 : pct}%` }}
+                  />
+                </div>
+                {state.currentFile && !state.complete && (
+                  <div className="mono text-xs text-slate-500 truncate">{state.currentFile}</div>
+                )}
+                {state.complete && (
+                  <button
+                    onClick={onClose}
+                    className="w-full py-3 rounded-xl bg-pink-500 hover:bg-pink-400 text-white font-semibold transition shadow-lg shadow-pink-500/30"
+                  >
+                    完成
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Update Toast
+    // ────────────────────────────────────────────────────────────────
+    function UpdateToast({ visible, version, onDismiss, onDownload }) {
+      if (!visible) return null;
+      return (
+        <div className="fixed bottom-12 right-6 z-30 px-4 py-3 rounded-xl bg-[#0c0c10] border border-pink-500/60 glow-pink-soft flex items-center gap-3 animate-in">
+          <div className="text-sm">v{version} available</div>
+          <button onClick={onDownload} className="text-pink-400 hover:text-pink-300 text-sm font-medium">
+            Download
+          </button>
+          <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1" aria-label="dismiss">
+            <Icon.close className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Default Panel(沒選任何卡時顯示在右欄)
+    // ────────────────────────────────────────────────────────────────
+    function DefaultPanel({ settings, setSettings, cardsCount }) {
+      const set = (k, v) => setSettings(s => ({ ...s, [k]: v }));
+      return (
+        <div className="h-full flex flex-col">
+          <div className="px-5 py-4 border-b border-slate-800/60">
+            <div className="text-[10px] uppercase tracking-widest text-slate-500">預設設定</div>
+            <div className="text-lg font-semibold mt-0.5">字卡屬性</div>
+          </div>
+          <div className="flex-1 overflow-auto scrollbar-pretty p-5 space-y-5">
+            <section>
+              <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">預設文字色</label>
+              <div className="flex gap-2">
+                {TEXT_COLORS.map(c => (
+                  <button
+                    key={c.hex}
+                    onClick={() => set('textColor', c.hex)}
+                    className={`w-11 h-11 rounded-full border-2 transition ${
+                      settings.textColor.toLowerCase() === c.hex.toLowerCase()
+                        ? 'border-pink-500 scale-110 glow-pink-soft'
+                        : 'border-slate-700 hover:border-slate-500'
+                    }`}
+                    style={{ backgroundColor: c.hex }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
+            </section>
+
+            <Toggle label="按類型自動配色"
+              desc="歌曲=白、TALKING=黃、轉場=粉、Chaser=紅"
+              checked={settings.useTypeColors}
+              onChange={v => set('useTypeColors', v)} />
+
+            <Toggle label="背景透明 (PNG alpha)"
+              desc="預覽顯示棋盤格"
+              checked={settings.transparent}
+              onChange={v => set('transparent', v)} />
+
+            <section>
+              <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">5 字標題切法</label>
+              <div className="flex bg-slate-800/30 border border-slate-700/50 rounded-lg p-1">
+                {['3/2', '2/3'].map(opt => (
+                  <button key={opt} onClick={() => set('split5', opt)}
+                    className={`flex-1 py-2 text-sm rounded transition ${
+                      settings.split5 === opt
+                        ? 'bg-pink-500 text-white font-semibold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}>{opt}</button>
+                ))}
+              </div>
+            </section>
+
+            <Toggle label="智慧斷詞 (jieba)"
+              desc="7+ 字標題優先按詞邊界切"
+              checked={settings.useJieba}
+              onChange={v => set('useJieba', v)} />
+
+            <div className="pt-3 border-t border-slate-800/40 text-xs text-slate-500 leading-relaxed">
+              <div className="font-semibold text-slate-400 mb-2">提示</div>
+              <p className="mb-1.5">點任何卡片 → 編輯個別屬性</p>
+              <p className="mb-1.5"><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+點 → 多選</p>
+              <p className="mb-1.5"><kbd>Shift</kbd>+點 → 範圍選取</p>
+              <p className="mb-1.5"><kbd>Ctrl+A</kbd> → 全選 ({cardsCount} 張)</p>
+              <p><kbd>Ctrl+Enter</kbd> → 匯出</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Main App
+    // ────────────────────────────────────────────────────────────────
+    const SAMPLE_TEXT = `INTRO - 'Cosmic Gate'
+S01 皮卡丘
+S02 小火龍
+TALKING-1
+轉場_VCR
+S03 皮卡丘進化
+Chaser~阿明
+感謝名單`;
+
+    function App() {
+      // 從 localStorage 還原(只跑一次,當作 useState initializer)
+      const initial = useMemo(() => loadPersistedState() || {}, []);
+
+      const [text, setText] = useState(initial.text || '');
+      const [selectedIds, setSelectedIds] = useState(new Set());
+      const [lastClickedIdx, setLastClickedIdx] = useState(null);
+      const [showSettings, setShowSettings] = useState(false);
+      const [showParser, setShowParser] = useState(false);
+      const [showChecklist, setShowChecklist] = useState(false);
+      const [showUpdate, setShowUpdate] = useState(true);
+      const [overrides, setOverrides] = useState(initial.overrides || {});
+      const [savedAt, setSavedAt] = useState(initial.text ? '已恢復上次工作' : '');
+      const [fontsReady, setFontsReady] = useState(false);
+      const [exportState, setExportState] = useState(null);
+      const [gridCols, setGridCols] = useState(initial.gridCols || 5);
+      const [settings, setSettings] = useState({
+        textColor: '#FFFFFF',
+        useTypeColors: true,
+        transparent: true,
+        split5: '3/2',
+        useJieba: true,
+        checkUpdate: true,
+        ...(initial.settings || {}),
+      });
+
+      // Auto-save (debounced 400ms)
+      useEffect(() => {
+        const t = setTimeout(() => {
+          const ok = savePersistedState({ text, overrides, settings, gridCols });
+          if (ok) setSavedAt(new Date().toLocaleTimeString('zh-TW', { hour12: false }));
+        }, 400);
+        return () => clearTimeout(t);
+      }, [text, overrides, settings, gridCols]);
+
+      // Font preload — Canvas 匯出前必須等 web font 載入
+      useEffect(() => {
+        if (!document.fonts) { setFontsReady(true); return; }
+        Promise.all([
+          document.fonts.load('900 100px Inter'),
+          document.fonts.load('900 100px "Noto Sans TC"'),
+          document.fonts.load('900 60px "Noto Sans TC"'),
+          document.fonts.load('500 14px "JetBrains Mono"'),
+        ]).then(() => setFontsReady(true)).catch(() => setFontsReady(true));
+      }, []);
+
+      const cards = useMemo(() => {
+        const parsed = parseSetlist(text);
+        return parsed.map(c => {
+          const k = cardKey(c);
+          return { ...c, ...(overrides[k] || {}), _key: k };
+        });
+      }, [text, overrides]);
+
+      const handleCardClick = (i, e) => {
+        const isMod = e && (e.ctrlKey || e.metaKey);
+        const isShift = e && e.shiftKey;
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          if (isShift && lastClickedIdx !== null) {
+            // 範圍選取
+            const [a, b] = [Math.min(lastClickedIdx, i), Math.max(lastClickedIdx, i)];
+            for (let k = a; k <= b; k++) next.add(k);
+          } else if (isMod) {
+            // toggle
+            if (next.has(i)) next.delete(i); else next.add(i);
+          } else {
+            // 單選
+            return new Set([i]);
+          }
+          return next;
+        });
+        setLastClickedIdx(i);
+      };
+      const clearSelection = () => setSelectedIds(new Set());
+      const selectAll = () => setSelectedIds(new Set(cards.map((_, i) => i)));
+
+      const updateCard = (i, partial) => {
+        const c = cards[i];
+        if (!c) return;
+        const k = c._key || cardKey(c);
+        // 過濾 _key,不要寫進 override
+        const { _key, ...rest } = partial;
+        setOverrides(o => ({ ...o, [k]: { ...(o[k] || {}), ...rest } }));
+      };
+      const updateMultipleCards = (ids, partial) => {
+        const { _key, ...rest } = partial;
+        setOverrides(o => {
+          const next = { ...o };
+          ids.forEach(i => {
+            const c = cards[i];
+            if (!c) return;
+            const k = c._key || cardKey(c);
+            next[k] = { ...(next[k] || {}), ...rest };
+          });
+          return next;
+        });
+      };
+      const deleteCard = (i) => {
+        const lines = text.split('\n');
+        const realLines = lines.filter(l => l.trim() && !/^-+$/.test(l.trim()));
+        if (i < realLines.length) {
+          const targetLine = realLines[i];
+          let removed = false;
+          const newText = lines.filter(l => {
+            if (!removed && l.trim() === targetLine.trim()) { removed = true; return false; }
+            return true;
+          }).join('\n');
+          setText(newText);
+          setSelectedIds(new Set());
+        }
+      };
+      const duplicateCard = (i) => {
+        const lines = text.split('\n');
+        const realIdxToLine = [];
+        lines.forEach((l, idx) => { if (l.trim() && !/^-+$/.test(l.trim())) realIdxToLine.push(idx); });
+        if (i < realIdxToLine.length) {
+          const lineIdx = realIdxToLine[i];
+          const newLines = [...lines];
+          newLines.splice(lineIdx + 1, 0, lines[lineIdx]);
+          setText(newLines.join('\n'));
+        }
+      };
+
+      // keyboard shortcuts
+      useEffect(() => {
+        const onKey = (e) => {
+          // 不要攔截 input / textarea 內的按鍵
+          const tag = (e.target && e.target.tagName) || '';
+          const inEditor = tag === 'INPUT' || tag === 'TEXTAREA';
+
+          if (e.key === 'Escape' && !inEditor) {
+            setSelectedIds(new Set());
+            setShowSettings(false);
+            setShowParser(false);
+            setShowChecklist(false);
+          }
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (cards.length) setShowChecklist(true);
+          }
+          if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !inEditor) {
+            e.preventDefault();
+            selectAll();
+          }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [cards.length]);
+
+      const selectedIdxArr = useMemo(() => Array.from(selectedIds).sort((a, b) => a - b), [selectedIds]);
+      const singleSelected = selectedIdxArr.length === 1 ? selectedIdxArr[0] : null;
+      const selectedCard = singleSelected !== null && singleSelected < cards.length ? cards[singleSelected] : null;
+
+      return (
+        <div className="h-screen flex flex-col">
+          {/* Top Bar */}
+          <header className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800/40 bg-[#08080a]">
+            <div className="flex items-center gap-3">
+              <Icon.logo className="w-9 h-9" />
+              <h1 className="text-[19px] font-bold tracking-tight">Arena Card Generator</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowParser(true)}
+                className="px-3.5 py-2 rounded-lg bg-slate-900/50 hover:bg-slate-800/70 border border-slate-800/60 text-[13px] flex items-center gap-2 transition"
+              >
+                <Icon.file className="w-3.5 h-3.5" /> Rundown Parser
+              </button>
+              <button
+                onClick={() => setShowSettings(true)}
+                className="px-3.5 py-2 rounded-lg bg-slate-900/50 hover:bg-slate-800/70 border border-slate-800/60 text-[13px] flex items-center gap-2 transition"
+              >
+                <Icon.settings className="w-3.5 h-3.5" /> Settings
+              </button>
+              <button
+                disabled={cards.length === 0}
+                onClick={() => setShowChecklist(true)}
+                className={`px-4 py-2 rounded-lg text-[13px] font-semibold flex items-center gap-2 transition ${
+                  cards.length > 0
+                    ? 'bg-pink-500 hover:bg-pink-400 text-white shadow-lg shadow-pink-500/30'
+                    : 'bg-pink-500/20 text-pink-300/40 cursor-not-allowed'
+                }`}
+              >
+                <Icon.upload className="w-3.5 h-3.5" /> Export All
+              </button>
+            </div>
+          </header>
+
+          {/* Main grid:3 欄 — input | cards | docked edit panel */}
+          <main className="flex-1 grid gap-3 p-3 overflow-hidden" style={{ gridTemplateColumns: '320px 1fr 380px' }}>
+            {/* Setlist input */}
+            <div className="flex flex-col bg-[#0a0a0c] rounded-xl border border-slate-800/40 overflow-hidden relative">
+              <div className="px-4 py-2.5 border-b border-slate-800/40 text-[10px] font-bold tracking-[0.18em] text-slate-500 uppercase flex items-center justify-between">
+                <span>Setlist Input</span>
+                {!text && (
+                  <button
+                    onClick={() => setText(SAMPLE_TEXT)}
+                    className="text-pink-400 hover:text-pink-300 normal-case tracking-normal text-xs font-normal"
+                  >
+                    試試範例 →
+                  </button>
+                )}
+              </div>
+              <div className="flex-1 relative overflow-hidden editor-fade">
+                <div className="lineno">
+                  {Array.from({ length: Math.max(text.split('\n').length, 1) }, (_, i) => (
+                    <div key={i}>{i + 1}</div>
+                  ))}
+                </div>
+                <textarea
+                  value={text}
+                  onChange={e => setText(e.target.value)}
+                  placeholder="Paste your setlist here..."
+                  wrap="off"
+                  className="w-full h-full editor-area mono text-[13px] text-slate-200 placeholder-slate-600 bg-transparent resize-none focus:outline-none scrollbar-pretty"
+                  spellCheck="false"
+                />
+              </div>
+            </div>
+
+            {/* Card grid */}
+            <div className="flex flex-col bg-[#0a0a0c] rounded-xl border border-slate-800/40 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-slate-800/40 flex items-center justify-between gap-3 text-[10px] font-bold tracking-[0.18em] text-slate-500 uppercase">
+                <span>Live Card Previews</span>
+                <div className="flex items-center gap-3 flex-1 justify-end">
+                  {selectedIds.size > 0 ? (
+                    <div className="flex items-center gap-2 normal-case tracking-normal">
+                      <span className="text-pink-400 font-semibold">已選 {selectedIds.size}</span>
+                      <button onClick={selectAll} className="text-slate-400 hover:text-white px-2">全選</button>
+                      <button onClick={clearSelection} className="text-slate-400 hover:text-white px-2">取消</button>
+                    </div>
+                  ) : cards.length > 0 && (
+                    <span className="text-slate-600 normal-case tracking-normal hidden xl:inline">
+                      點 · <kbd>Ctrl</kbd>+點 · <kbd>Shift</kbd>+點
+                    </span>
+                  )}
+                  {/* Zoom slider:2~16 cols */}
+                  <div className="flex items-center gap-2 normal-case tracking-normal">
+                    <button
+                      onClick={() => setGridCols(c => Math.max(2, c - 1))}
+                      className="w-6 h-6 rounded bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white text-base flex items-center justify-center"
+                      title="放大(更少欄)"
+                    >−</button>
+                    <input
+                      type="range"
+                      min="2"
+                      max="16"
+                      value={gridCols}
+                      onChange={e => setGridCols(parseInt(e.target.value))}
+                      className="w-24 accent-pink-500"
+                      title={`${gridCols} × N grid`}
+                    />
+                    <button
+                      onClick={() => setGridCols(c => Math.min(16, c + 1))}
+                      className="w-6 h-6 rounded bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white text-base flex items-center justify-center"
+                      title="縮小(更多欄)"
+                    >+</button>
+                    <span className="text-pink-400 font-mono w-8 text-right">{gridCols}×</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto scrollbar-pretty p-4">
+                {cards.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-5">
+                    <Icon.stack className="w-16 h-16 opacity-25" />
+                    <p className="text-sm text-center max-w-xs">Paste your setlist on the left — cards will appear here instantly</p>
+                  </div>
+                ) : (
+                  <div
+                    className="grid gap-2"
+                    style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
+                  >
+                    {cards.map((card, i) => (
+                      <Card
+                        key={`${i}-${card.title}`}
+                        card={card}
+                        idx={i}
+                        isSelected={selectedIds.has(i)}
+                        onClick={(e) => handleCardClick(i, e)}
+                        transparent={settings.transparent}
+                        useTypeColors={settings.useTypeColors && !card.colorOverride}
+                        customColor={card.colorOverride || settings.textColor}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 右欄常駐 — 內容依選取狀態切換 */}
+            <div className="flex flex-col bg-[#0a0a0c] rounded-xl border border-slate-800/40 overflow-hidden">
+              {selectedIds.size >= 2 ? (
+                <BulkEditPanel
+                  ids={selectedIdxArr}
+                  cards={cards}
+                  onApply={updateMultipleCards}
+                  onClear={clearSelection}
+                />
+              ) : selectedIds.size === 1 && selectedCard ? (
+                <CardEditPanel
+                  card={selectedCard}
+                  idx={singleSelected}
+                  onUpdate={updateCard}
+                  onDelete={deleteCard}
+                  onDuplicate={duplicateCard}
+                />
+              ) : (
+                <DefaultPanel settings={settings} setSettings={setSettings} cardsCount={cards.length} />
+              )}
+            </div>
+          </main>
+
+          {/* Status bar */}
+          <footer className="px-5 py-2 border-t border-slate-800/40 bg-[#08080a] flex items-center justify-between text-[11px] text-slate-500">
+            <div className="flex items-center gap-1.5">
+              {cards.length > 0 && <Icon.check className="w-3 h-3 text-emerald-400" />}
+              <span>{cards.length} 張字卡</span>
+              {selectedIds.size > 0 && (
+                <span className="text-pink-400 ml-3">
+                  · {selectedIds.size === 1 ? `編輯中: #${singleSelected + 1}` : `多選 ${selectedIds.size} 張`}
+                </span>
+              )}
+              {savedAt && (
+                <span className="text-emerald-500/80 ml-3">
+                  · 已儲存 {savedAt}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <kbd>Ctrl+Enter</kbd> <span>匯出</span>
+              <span className="text-slate-700">|</span>
+              <kbd>Ctrl+A</kbd> <span>全選</span>
+              <span className="text-slate-700">|</span>
+              <span>fonts: <span className={fontsReady ? 'text-emerald-500' : 'text-amber-400'}>{fontsReady ? 'ready' : 'loading'}</span></span>
+              <span className="text-slate-700">|</span>
+              <span>v0.3.0-prototype</span>
+            </div>
+          </footer>
+
+          {/* Modals only(CardEdit / BulkEdit / Default 都已 inline 在右欄) */}
+          <SettingsModal
+            open={showSettings}
+            onClose={() => setShowSettings(false)}
+            settings={settings}
+            setSettings={setSettings}
+          />
+          <ParserModal
+            open={showParser}
+            onClose={() => setShowParser(false)}
+            onImport={(t) => setText(t)}
+          />
+          <ExportChecklist
+            open={showChecklist}
+            cards={cards}
+            fontsReady={fontsReady}
+            onClose={() => setShowChecklist(false)}
+            onConfirm={async () => {
+              setShowChecklist(false);
+              setExportState({ current: 0, total: cards.length, currentFile: '', complete: false });
+              try {
+                await exportAllToZip(cards, settings, (current, total, currentFile) => {
+                  setExportState({ current, total, currentFile, complete: false });
+                });
+                setExportState(s => ({ ...s, complete: true }));
+              } catch (err) {
+                console.error(err);
+                alert('匯出失敗:' + err.message);
+                setExportState(null);
+              }
+            }}
+          />
+          <ExportProgress
+            state={exportState}
+            onClose={() => setExportState(null)}
+          />
+          <UpdateToast
+            visible={showUpdate}
+            version="0.3.0"
+            onDismiss={() => setShowUpdate(false)}
+            onDownload={() => { window.open('https://github.com/kailyn41291-del/ArenaCardGen/releases', '_blank'); setShowUpdate(false); }}
+          />
+        </div>
+      );
+    }
+
+    // Error boundary — 出錯時顯示訊息而不是黑畫面
+    class ErrorBoundary extends React.Component {
+      constructor(p) { super(p); this.state = { error: null }; }
+      static getDerivedStateFromError(error) { return { error }; }
+      componentDidCatch(error, info) { console.error('App error:', error, info); }
+      render() {
+        if (this.state.error) {
+          return (
+            <div className="h-screen flex items-center justify-center p-8">
+              <div className="max-w-2xl bg-red-950/40 border border-red-500/40 rounded-xl p-6">
+                <h2 className="text-red-300 font-bold text-lg mb-2">⚠ App crashed</h2>
+                <pre className="text-xs text-red-200 mono whitespace-pre-wrap mb-4">{String(this.state.error)}\n{this.state.error.stack}</pre>
+                <div className="flex gap-3">
+                  <button onClick={() => this.setState({ error: null })} className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold">重試</button>
+                  <button onClick={() => { localStorage.removeItem(STORAGE_KEY); location.reload(); }} className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm">清除狀態並重整</button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(
+      <ErrorBoundary><App /></ErrorBoundary>
+    );
+  </script>
+</body>
+</html>
