@@ -1578,8 +1578,25 @@ Chaser
             setStatus(`📄 解析 PDF 第 ${i}/${pdf.numPages} 頁…`);
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();
-            // 直接 join 所有 string items,Gemini 自己會理解
-            pages.push(content.items.map(item => item.str).join(' '));
+            // 用 item 的 y 座標(transform[5])還原行結構 — 同 y 同行 join 空格,
+            // 不同 y 用換行。否則 parser 會看到一坨單行文字無法切 setlist。
+            // PDF y 座標是下到上,但 PDF.js 通常按閱讀順序(上到下)輸出 items。
+            const Y_TOLERANCE = 2; // y 差 < 2 視為同行
+            const lines = [];
+            let currentLine = [];
+            let lastY = null;
+            for (const item of content.items) {
+              if (!item.str) continue;
+              const y = item.transform ? item.transform[5] : null;
+              if (lastY !== null && y !== null && Math.abs(y - lastY) > Y_TOLERANCE) {
+                if (currentLine.length) lines.push(currentLine.join(' ').trim());
+                currentLine = [];
+              }
+              currentLine.push(item.str);
+              if (y !== null) lastY = y;
+            }
+            if (currentLine.length) lines.push(currentLine.join(' ').trim());
+            pages.push(lines.filter(Boolean).join('\n'));
           }
           const text = pages.join('\n\n').trim();
           if (!text) {
