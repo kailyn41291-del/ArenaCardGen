@@ -8,6 +8,28 @@
 
 ## [Unreleased]
 
+(無)
+
+---
+
+## [v0.3.0-beta7] — 2026-04-27
+
+### Fixed
+- **Auto-update 整個壞了**(critical,beta1~beta6 全中招):electron-builder 預設行為下,實際檔名(`Arena.Card.Generator-...dmg`)跟 `latest.yml` / `latest-mac.yml` 內 URL(`Arena-Card-Generator-...dmg`)不對盤,electron-updater fetch 一律 404。修法:`app/package.json` 加 `artifactName` 強制連字號,讓 yml URL 跟檔名用同一 template
+
+### Changed
+- 檔名格式從 `Arena.Card.Generator-...` 換成 `Arena-Card-Generator-...`(連字號取代點)。`productName` 仍是「Arena Card Generator」(顯示給 user 看的 app 名稱、Applications 內的圖示 label),不變
+
+### Notes
+- beta5 / beta6 user 升 beta7 一次後,後續 auto-update 才會通(以前路徑是壞的)
+- 新 user 直接下載 beta7 沒影響
+
+---
+
+## [Repo cleanup pre-public]
+
+公開到 VJ 圈前的 audit cleanup,沒對應單一 release tag:
+
 ### Added
 - `CHANGELOG.md` 從 v0.3.0-beta1 起記錄
 - `.github/SECURITY.md`、`.github/CONTRIBUTING.md`、`DEVELOPMENT.md`(取代刪掉的舊 CLAUDE.md)
@@ -18,6 +40,7 @@
 - README:pre-release(beta)警告
 - feature_request issue template:加「使用場景」分類(演出前 / 中 / 後 / Resolume 整合)
 - main.js:`sandbox: false` 加長 TODO comment 說明技術債
+- ParserModal:智慧/智能解析首次使用加 explicit consent dialog(localStorage flag `arena-cardgen-gemini-warned` 記住)
 
 ### Changed
 - `package-lock.json`:565 個 URL 從 `npmmirror.com` 中國鏡像切回 `registry.npmjs.org` 官方,避免外部 contributor 被擋
