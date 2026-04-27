@@ -1742,6 +1742,15 @@ Chaser
           setStatus(t('parser.statusNoKey'));
           return;
         }
+        // 首次使用顯式警告:把 RD 內容送 Google Gemini API,NDA 曲目請改用規則 parser
+        const GEMINI_WARN_KEY = 'arena-cardgen-gemini-warned';
+        if (!localStorage.getItem(GEMINI_WARN_KEY)) {
+          const ok = window.confirm(
+            t('parser.geminiWarnTitle') + '\n\n' + t('parser.geminiWarnBody')
+          );
+          if (!ok) return;
+          localStorage.setItem(GEMINI_WARN_KEY, '1');
+        }
         pushSnapshot();
         setSmartLoading(true);
         setStatus(t('parser.statusSmartLoading'));
