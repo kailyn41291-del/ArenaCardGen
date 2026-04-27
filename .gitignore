@@ -47,7 +47,6 @@ logs/
 output/
 exports/
 *.png
-!.claude/**/*.png
 !assets/**/*.png
 
 # ── Resolume 相關(將來如果加 .avc / clip 設定) ────────

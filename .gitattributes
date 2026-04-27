@@ -1,0 +1,17 @@
+# 統一行尾為 LF — 跨 Win / Mac contributor 避免 CRLF/LF 翻轉造成
+# git diff 充滿假 change(尤其 sed / 部分編輯器會誤改)
+* text=auto eol=lf
+
+# 二進位檔不做行尾轉換
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.pdf binary
+*.dmg binary
+*.exe binary
+*.zip binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

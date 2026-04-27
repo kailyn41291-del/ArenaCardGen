@@ -181,7 +181,7 @@ xattr -cr "/Applications/Arena Card Generator.app"
 
 ## 開發者 / 想自己 build
 
-詳見 [DEVELOPMENT.md](DEVELOPMENT.md)(架構導覽)+ [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)(PR 流程)。
+需要 **Node.js 18+**(macOS 額外要 Xcode Command Line Tools)。架構細節詳見 [DEVELOPMENT.md](DEVELOPMENT.md);PR 流程詳見 [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)。
 
 ```bash
 git clone https://github.com/kailyn41291-del/ArenaCardGen.git
@@ -189,6 +189,8 @@ cd ArenaCardGen/app
 npm install
 npm run dev    # 啟動 esbuild watch + tailwind watch + Electron
 ```
+
+> 💡 `npm install` 會跳幾個 high vulnerability warning,**全部都在 electron-builder 的 dev chain**(只在 build 機器,不影響打包後的 .exe / .dmg)。預計下個 release cycle 一次升 electron major 解決。
 
 CI 自動雙平台 build:`git tag vX.Y.Z && git push origin vX.Y.Z` → GitHub Actions 自動產 Win + Mac binary attach 到 release。
 
