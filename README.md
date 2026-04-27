@@ -4,8 +4,8 @@
 
 **演唱會字卡產生器** — 把雜亂 RD(rundown / 流程表)轉成 1920×1080 PNG 字卡,給 VJ 在 Resolume / 大螢幕上即時切。
 
-[![Latest Release](https://img.shields.io/github/v/release/kailyn41291-del/ArenaCardGen?include_prereleases&label=release)](https://github.com/kailyn41291-del/ArenaCardGen/releases/latest)
-[![Release Build](https://img.shields.io/github/actions/workflow/status/kailyn41291-del/ArenaCardGen/release.yml?label=build)](https://github.com/kailyn41291-del/ArenaCardGen/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/kailyn41291-del/ArenaCardGen?label=release)](https://github.com/kailyn41291-del/ArenaCardGen/releases/latest)
+[![Release Build](https://img.shields.io/github/actions/workflow/status/kailyn41291-del/ArenaCardGen/release.yml?event=push&label=build)](https://github.com/kailyn41291-del/ArenaCardGen/actions/workflows/release.yml)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-blue)]()
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)]()
 [![Status](https://img.shields.io/badge/status-pre--release%20(beta)-orange)]()
