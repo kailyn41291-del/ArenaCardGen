@@ -37,7 +37,14 @@ Arena Card Generator 讓你：
 
 雙擊 `.dmg` → 拖到 Applications 資料夾。
 
-> ⚠️ **Gatekeeper 警告**：在 Finder 對 `.app` **右鍵 → 打開 → 打開**。未做 Apple notarization，非惡意程式。
+> ⚠️ **macOS 14+ 第一次打開會跳「已損毀，無法打開」** — 這是 Gatekeeper 對未經 Apple notarize 的 app 的預設行為，**程式沒有壞**。
+>
+> 打開「終端機」，貼上這行指令並按 Enter，之後雙擊就能開：
+> ```bash
+> xattr -cr "/Applications/Arena Card Generator.app"
+> ```
+>
+> 原因是沒做 Apple notarization（要 $99/年 Developer Program）。app 本身有做 ad-hoc code sign，所以指令跑完就能正常雙擊使用。
 
 ---
 
