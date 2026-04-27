@@ -82,7 +82,11 @@ jobs:
             app/dist/*.blockmap
             app/dist/latest*.yml
           fail_on_unmatched_files: false
-          # prerelease 自動判斷:tag 含 beta / alpha / rc 就 prerelease
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          # 永遠不標 prerelease + 一律 latest。原因:electron-updater 走
+          # GitHub /releases/latest API,該 endpoint 只回 isPrerelease=false
+          # 的 Latest release。我們的 betaN 是 release name convention,
+          # 不是「未公開」狀態,故一律標 stable + Latest,讓 auto-update 通
+          prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
