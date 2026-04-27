@@ -2440,10 +2440,9 @@ Chaser~阿明
       //   { state: 'downloaded',  version }
       //   { state: 'error',       message }
       const [updateInfo, setUpdateInfo] = useState(null);
-      // macOS 跳過 Tier 2(autoUpdater 因沒 Apple notarization 裝不上,改走 Tier 1 web mode toast)
-      // 對應 main.js 的 platform gate;兩邊一起改才不會 IPC 事件孤兒 / 沒 toast 顯示
-      const isElectronUpdate = !!window.electronAPI?.onUpdateAvailable
-                              && window.electronAPI?.platform !== 'darwin';
+      // 全平台都走 Tier 2 — Mac 用 .zip + ad-hoc 簽名讓 Squirrel.Mac 允許 in-place replace
+      // 若 Mac 撞 Gatekeeper,update-error event 會走 fallback「Download」按鈕引到 release 頁
+      const isElectronUpdate = !!window.electronAPI?.onUpdateAvailable;
 
       // Electron mode:訂閱 main.js 的 autoUpdater IPC 事件
       useEffect(() => {
