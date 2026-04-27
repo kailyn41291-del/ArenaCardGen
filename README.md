@@ -162,7 +162,9 @@ xattr -cr "/Applications/Arena Card Generator.app"
 
 ### Q: 自動更新怎麼運作?
 
-NSIS installer / .dmg 安裝的版本會在啟動時檢查新版本,**有新版會在背景下載**,完成後跳對話框問你「立刻重啟安裝 / 稍後」。Portable .exe 沒這功能,要手動重新下載。
+**Windows(NSIS installer)**:啟動時檢查新版,有新版會在背景下載,完成後跳「立刻重啟安裝 / 稍後」對話框。Portable `.exe` 沒這功能,要手動重新下載。
+
+**macOS(.dmg)**:**只會跳 toast 提示「有新版」,不會自動安裝**(因為沒做 Apple notarization,electron-updater 在 Mac 上裝不上沒 notarize 的更新)。看到 toast 請手動到 [Releases](https://github.com/kailyn41291-del/ArenaCardGen/releases/latest) 下載新版 `.dmg`,並重新跑一次 `xattr -cr "/Applications/Arena Card Generator.app"` 清掉 quarantine。
 
 可以在 Settings 裡按「檢查更新」手動觸發。
 

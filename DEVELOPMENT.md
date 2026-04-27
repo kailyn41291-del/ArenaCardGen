@@ -30,6 +30,17 @@ npm run dev
 
 User 第一次安裝要手動跑 `xattr -cr "/Applications/Arena Card Generator.app"` 清除 quarantine 旗標,或用系統設定「隱私權與安全性」按「仍要打開」。詳見 README。
 
+### macOS auto-update 限制
+
+沒 notarize 的後果之一:**electron-updater 在 macOS 上不能完成自動安裝**。app 仍會跳 toast 提示新版可下載,但點「立即安裝」 macOS 端會擋(Gatekeeper 認為新檔是 unsigned 的 download)。
+
+目前對 macOS user 的處理方式:
+- toast 顯示「v0.3.0-betaX 可下載」(不顯示「下載中」進度條,因為實際沒在背景下載)
+- 點 toast 跳轉到 GitHub Releases 頁,user 自己抓新 `.dmg`
+- 安裝完跑 `xattr -cr` 一次
+
+修這個唯一方法是付 Apple Developer Program 的 $99/年做 notarization。
+
 ## 已知技術債
 
 - **`app/electron/main.js` 內 `sandbox: false`** — preload 需要 `require('fs')` 才寫得了 file。長期應改用 sidecar / IPC,讓 sandbox 回到 `true`。Tracking issue 待開。
