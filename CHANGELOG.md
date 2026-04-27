@@ -8,7 +8,23 @@
 
 ## [Unreleased]
 
-(無)
+### Added
+- **`install-update-now` IPC handler 加 fallback**:`autoUpdater.quitAndInstall()` 失敗時(Win 下例如權限 / 防毒擋安裝程式),自動 `shell.openExternal` 跳到 GitHub Releases 頁,user 仍能手動下載最新安裝程式。借用 LTCast pattern,雙保險
+
+---
+
+## [v0.3.0-beta9] — 2026-04-27
+
+### Added
+- **macOS in-app auto-update 重新啟用**:借用 LTCast pattern,Mac 走 `.zip` 而不是 `.dmg`。`app/package.json` `mac.target` 加 `zip` 跟 `dmg` 並存,electron-builder 同時 ship 兩種,electron-updater 在 Mac 自動挑 `.zip` 下載解壓。在 ad-hoc 簽名兩邊一致下,Squirrel.Mac 允許 in-place replace,`quitAndInstall` 不會撞 Gatekeeper
+
+### Changed
+- 撤掉 beta8 的 `process.platform === 'darwin'` Tier 2 platform gate(全平台統一走 Tier 2 IPC + toast 進度條 + 立即安裝流程)
+- `app/electron/preload.js` 跟 `app/web/src/main.jsx` 對應撤掉 darwin 例外
+
+### Notes
+- 若 Mac 端真的撞牆(quitAndInstall 失敗 / Gatekeeper 擋 .zip 解壓),beta10+ revert 回 beta8 platform gate 邏輯
+- **beta1~beta6 user 注意**:你們裝的版本撞 URL 不對盤 bug 卡住,自動更新走不通。請手動到 Releases 下載 beta9 安裝程式蓋過去,之後 release 自動更新就會跑
 
 ---
 
