@@ -120,13 +120,18 @@ app.on('window-all-closed', () => {
 ipcMain.handle('app-version', () => app.getVersion());
 
 // 立即重啟並安裝下載好的更新
+// 若 quitAndInstall 失敗(極少見,Win 下例如權限 / 防毒擋安裝程式),
+// 自動 fallback 開瀏覽器到 Releases 頁,user 還能手動下載。借用 LTCast pattern
+const RELEASES_PAGE_URL = 'https://github.com/kailyn41291-del/ArenaCardGen/releases/latest';
 ipcMain.handle('install-update-now', () => {
   try {
     autoUpdater.quitAndInstall();
     return { ok: true };
   } catch (err) {
     console.error('[install-update-now]', err);
-    return { ok: false, error: err.message };
+    // Fallback:開瀏覽器到 release 頁,user 自己抓最新版安裝程式
+    shell.openExternal(RELEASES_PAGE_URL).catch(() => {});
+    return { ok: false, error: err.message, fallback: 'browser' };
   }
 });
 
