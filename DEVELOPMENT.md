@@ -30,22 +30,29 @@ npm run dev
 
 User 第一次安裝要手動跑 `xattr -cr "/Applications/Arena Card Generator.app"` 清除 quarantine 旗標,或用系統設定「隱私權與安全性」按「仍要打開」。詳見 README。
 
-### macOS auto-update 限制
+### macOS auto-update — 完全停用 Tier 2
 
-沒 notarize 的後果之一:**electron-updater 在 macOS 上不能完成自動安裝**。app 仍會跳 toast 提示新版可下載,但點「立即安裝」 macOS 端會擋(Gatekeeper 認為新檔是 unsigned 的 download)。
+沒 notarize 的後果:**electron-updater 在 macOS 上不只 install 會被擋,連 download 階段都會在 `~/Library/Caches/arena-card-gen-updater/` 留半成品垃圾檔**。所以 v0.3.0-beta8 起 macOS 完全停用 Tier 2,只用 Tier 1。
 
-目前對 macOS user 的處理方式:
-- toast 顯示「v0.3.0-betaX 可下載」(不顯示「下載中」進度條,因為實際沒在背景下載)
-- 點 toast 跳轉到 GitHub Releases 頁,user 自己抓新 `.dmg`
-- 安裝完跑 `xattr -cr` 一次
+實作位置(三個檔案要一起改才不會 IPC 事件孤兒):
+- `app/electron/main.js`:`if (!isDev && process.platform !== 'darwin')` 圍住整個 autoUpdater 訂閱 + `checkForUpdates()`,darwin 上連 listener 都不掛
+- `app/electron/preload.js`:暴露 `platform: process.platform` 給 renderer 識別
+- `app/web/src/main.jsx`:`isElectronUpdate` 多一個 `&& platform !== 'darwin'` gate,darwin 上 fall through 到 Tier 1 的 GitHub API check
 
-修這個唯一方法是付 Apple Developer Program 的 $99/年做 notarization。
+實際 macOS user 看到的:
+- 啟動 5 秒後 renderer fetch GitHub Releases API → toast 顯示「v0.3.0-betaX 可下載 / Download」
+- 點 Download → 開新分頁到 release 頁 → user 自己抓新 `.dmg`
+- 安裝後跑 `xattr -cr` 一次
+
+Windows / Linux 不受影響(Tier 2 完整流程):背景下載 + 進度條 + 「立即安裝」按鈕 → app 重啟自動裝完。
+
+修這個讓 macOS 也走 Tier 2 的唯一方法是付 Apple Developer Program 的 $99/年做 notarization,目前 trade-off 不付。
 
 ## 已知技術債
 
 - **`app/electron/main.js` 內 `sandbox: false`** — preload 需要 `require('fs')` 才寫得了 file。長期應改用 sidecar / IPC,讓 sandbox 回到 `true`。Tracking issue 待開。
 - **重複內容的字卡 reorder 後 override** 用內容對齊,不保證跟 reorder 前完全相同(corner case)。
-- **Auto-update Tier 1**(GitHub API 檢查 + web fallback)跟 **Tier 2**(electron-updater IPC)兩條 path 共存;electron 環境用 Tier 2,瀏覽器跑用 Tier 1。
+- **Auto-update 三條 path**:Tier 1(GitHub API check + web mode toast,瀏覽器 + macOS 用)/ Tier 2(electron-updater IPC + 進度條 + 立即安裝,Windows + Linux 用)。macOS 因 Apple notarization 缺,Tier 2 完全停用走 Tier 1。
 
 ## 跑 lint / 測試
 
