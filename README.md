@@ -57,13 +57,36 @@ VJ 在演唱會現場要把每首歌、TALKING、轉場切到大螢幕,通常要
 | `Arena Card Generator-x.x.x.dmg` | Intel Mac |
 | `Arena Card Generator-x.x.x-arm64.dmg` | Apple Silicon (M1 / M2 / M3 / M4) |
 
-⚠️ **第一次打開會看到「無法打開,因為它來自未識別的開發者」** — 同 Windows 是沒付 Apple Developer 認證費 ($99/年)。做法:
+⚠️ **第一次打開可能會看到警告**(沒付 Apple Developer 認證費 $99 / 年的後果,**不代表 app 有問題**)。看到的訊息有兩種,做法不同:
 
-1. 在 Finder 找到 `Arena Card Generator.app`(在 Applications 資料夾)
+#### A. 「無法打開,因為它來自未識別的開發者」(舊版 macOS / 較寬鬆的設定)
+
+1. 在 Finder 找到 `Arena Card Generator.app`(Applications 資料夾)
 2. **右鍵 → 打開**(不能雙擊)
 3. 跳出警告選 **打開**
 
-之後就可以雙擊正常開啟。
+#### B. 「『Arena Card Generator』已損毀,無法打開。 你應該將其丟到『垃圾桶』」(macOS 13+ / Apple Silicon 常見)
+
+⚠️ **不要丟垃圾桶**。這是 Gatekeeper 對 unsigned + 從網路下載的 app 的更嚴格擋法,「右鍵→打開」沒用了。兩種解法:
+
+**最快:Terminal 指令**
+
+打開「終端機」(Terminal.app),貼這行 → Enter:
+
+```bash
+xattr -cr "/Applications/Arena Card Generator.app"
+```
+
+清掉 macOS 加的 `quarantine` 屬性,之後雙擊就能開。
+
+**或:系統設定(GUI)**
+
+1. 在「已損毀」對話框先按「**取消**」
+2. 開「**系統設定**」→「**隱私權與安全性**」
+3. 拉到下面看到「`Arena Card Generator` 已被阻擋…」→ 點「**仍要打開**」
+4. 跳新警告 →「**打開**」
+
+之後雙擊就正常。
 
 ---
 
