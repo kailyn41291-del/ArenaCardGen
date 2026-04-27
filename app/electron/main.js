@@ -9,7 +9,16 @@ const isDev = !app.isPackaged;
 // 對 portable .exe 不 work,只支援 NSIS installer 跟 macOS dmg(zip 版會 silent skip)
 autoUpdater.autoDownload = true;       // 自動下載
 autoUpdater.autoInstallOnAppQuit = true; // app 退出時自動裝
-autoUpdater.allowPrerelease = true;     // beta 版也納入(因為我們現在主要是 prerelease)
+// allowPrerelease = false:走 GitHub /releases/latest API 的 Latest tag。
+// 不要設 true,因為 electron-updater 會把版本 prerelease[0] 當 channel(semver),
+// 我們命名 0.3.0-beta9 沒加點 → semver 解析成 ["beta9"] 單一識別子,
+// 每個 betaN 各自一個 channel,永遠 detect 不到下一個版本(beta5/6/7/8/9
+// 全部踩過這個地雷,user 永遠收到「latest = 自己」)。
+// 我們 release 雖然 tag 含 beta,但 GitHub UI 全標 isPrerelease=false,
+// 所以 /releases/latest 會回最新 betaN — 用這條就好。
+// 將來真的要分 alpha/beta/stable channel 時,version 命名要改成 0.3.0-beta.10
+// (加點)讓 semver 解析成 ["beta", 10],channel 才正確。
+autoUpdater.allowPrerelease = false;
 
 let mainWindow;
 
