@@ -8,7 +8,22 @@
 
 ## [Unreleased]
 
-(無)
+### Changed
+- **Releases 頁排版改造**:`.github/workflows/release.yml` 加 "Generate release body" step,push tag 自動產 release notes,頂端釘 3 個顯眼下載連結(Win Setup / Mac arm64 / Mac Intel),其它 `.zip` / `.blockmap` / `.yml` / portable `.exe` 收進 `<details>` 摺疊。**user 第一眼從「13 個檔案不知道點哪個」變「請選你的平台」3 選 1**;build artifacts 一個都沒砍(portable + auto-update infra 全留)
+
+---
+
+## [v0.3.0-beta12] — 2026-04-27
+
+### Changed
+- **CI release upload 永遠不標 prerelease + 一律 `make_latest: true`**:原因是 electron-updater 走 GitHub `/releases/latest` API,該 endpoint 只回 `isPrerelease=false` 的 Latest release。我們的 `betaN` 是 release name convention,不是「未公開」狀態,故一律標 stable + Latest 讓 auto-update 通
+
+---
+
+## [v0.3.0-beta11] — 2026-04-27
+
+### Fixed
+- **`allowPrerelease=true` 觸發 electron-updater channel parse bug** → 改回 `false`。betaN 即使被 GitHub API 認成 Latest,也不要走 prerelease channel 邏輯
 
 ---
 

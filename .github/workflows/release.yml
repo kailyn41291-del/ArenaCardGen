@@ -71,6 +71,50 @@ jobs:
         shell: bash
         run: ls -la dist/
 
+      # Release notes body — 把 user 第一眼看到的「請選你的平台」3 個直連結
+      # 釘在最上面,把 13 個 asset list 的視覺噪音壓下去。Win + Mac runner
+      # 都產同一份 body(softprops/action-gh-release 對既有 release 是 PATCH,
+      # 後寫者覆蓋同樣內容,結果 idempotent)
+      - name: Generate release body
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          REPO="${{ github.repository }}"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+          cat > release_body.md <<EOF
+          ## ⬇️ 下載 / Download
+
+          選你的平台 — 一個檔案就好。其他檔案是給 app 內自動更新流程用的,**不用手動下載**。
+
+          | 平台 | 點這個 |
+          |---|---|
+          | 🪟 **Windows** | **[Arena-Card-Generator-Setup-${VERSION}.exe](${BASE}/Arena-Card-Generator-Setup-${VERSION}.exe)** |
+          | 🍎 **Mac** · Apple Silicon (M1/M2/M3/M4) | **[Arena-Card-Generator-${VERSION}-arm64.dmg](${BASE}/Arena-Card-Generator-${VERSION}-arm64.dmg)** |
+          | 🍎 **Mac** · Intel | **[Arena-Card-Generator-${VERSION}-x64.dmg](${BASE}/Arena-Card-Generator-${VERSION}-x64.dmg)** |
+
+          > ⚠️ 第一次打開的安全警告(Windows SmartScreen / macOS Gatekeeper)→ 看 [README 安裝說明](https://github.com/${REPO}/blob/${TAG}/README.md#安裝)
+
+          <details><summary>📦 其他檔案是什麼?</summary>
+
+          | 檔案 | 用途 |
+          |---|---|
+          | \`Arena-Card-Generator-${VERSION}-x64.exe\` | Windows portable(免安裝、解壓即用,進階 user 用) |
+          | \`*-arm64.zip\` / \`*-x64.zip\` | macOS 自動更新走的 in-place replace 包(app 自己抓) |
+          | \`*.blockmap\` | electron-updater delta update 用 |
+          | \`latest.yml\` / \`latest-mac.yml\` | electron-updater 找新版的 manifest |
+
+          這些檔案 user 不用手動下載 — app 內自動更新會處理。
+
+          </details>
+
+          ---
+
+          完整改動見 [CHANGELOG.md](https://github.com/${REPO}/blob/${TAG}/CHANGELOG.md)。
+          EOF
+          echo "---- release_body.md ----"
+          cat release_body.md
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -82,6 +126,7 @@ jobs:
             app/dist/*.blockmap
             app/dist/latest*.yml
           fail_on_unmatched_files: false
+          body_path: release_body.md
           # 永遠不標 prerelease + 一律 latest。原因:electron-updater 走
           # GitHub /releases/latest API,該 endpoint 只回 isPrerelease=false
           # 的 Latest release。我們的 betaN 是 release name convention,
