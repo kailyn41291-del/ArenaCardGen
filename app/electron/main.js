@@ -66,26 +66,38 @@ app.whenReady().then(() => {
   });
 
   // Auto-update — 只在 packaged build 跑(dev 跑會報錯找不到 update server)
+  // 改成 in-app 流程:autoUpdater 事件全部 forward 到 renderer,toast 顯示進度條 + 安裝按鈕
   if (!isDev) {
-    autoUpdater.on('update-downloaded', (info) => {
-      // 下載完成 → 跳 native dialog 問 user 要不要立刻重啟安裝
-      dialog.showMessageBox({
-        type: 'info',
-        buttons: ['立即重啟安裝', '稍後'],
-        defaultId: 0,
-        cancelId: 1,
-        title: '新版已下載',
-        message: `Arena Card Generator ${info.version} 已下載完成。`,
-        detail: '重啟 app 即可套用新版本。若選「稍後」,下次關閉 app 時會自動安裝。',
-      }).then(({ response }) => {
-        if (response === 0) autoUpdater.quitAndInstall();
+    const send = (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, payload);
+      }
+    };
+    autoUpdater.on('update-available', (info) => {
+      send('update-available', { version: info.version });
+    });
+    autoUpdater.on('update-not-available', () => {
+      send('update-not-available', {});
+    });
+    autoUpdater.on('download-progress', (p) => {
+      // p = { percent, transferred, total, bytesPerSecond }
+      send('download-progress', {
+        percent: p.percent,
+        transferred: p.transferred,
+        total: p.total,
+        bytesPerSecond: p.bytesPerSecond,
       });
     });
-    autoUpdater.on('error', (err) => {
-      // 不騷擾 user,log 出來給 dev 看;Tier 1 (renderer 內 toast) 仍會 fallback 通知
-      console.warn('[autoUpdater]', err.message);
+    autoUpdater.on('update-downloaded', (info) => {
+      send('update-downloaded', { version: info.version });
     });
-    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    autoUpdater.on('error', (err) => {
+      console.warn('[autoUpdater]', err.message);
+      send('update-error', { message: err.message || String(err) });
+    });
+    // 用 checkForUpdates 而不是 checkForUpdatesAndNotify(後者會跳 native notification,
+    // 我們改用 renderer 內 toast)
+    autoUpdater.checkForUpdates().catch(() => {});
   }
 });
 
@@ -100,6 +112,17 @@ app.on('window-all-closed', () => {
 // ────────────────────────────────────────────────────────────────
 
 ipcMain.handle('app-version', () => app.getVersion());
+
+// 立即重啟並安裝下載好的更新
+ipcMain.handle('install-update-now', () => {
+  try {
+    autoUpdater.quitAndInstall();
+    return { ok: true };
+  } catch (err) {
+    console.error('[install-update-now]', err);
+    return { ok: false, error: err.message };
+  }
+});
 
 // ────────────────────────────────────────────────────────────────
 // Gemini API key — 用 safeStorage 加密(OS keychain:Windows DPAPI / macOS Keychain)

@@ -2084,18 +2084,89 @@ Chaser
     // ────────────────────────────────────────────────────────────────
     // Update Toast
     // ────────────────────────────────────────────────────────────────
-    function UpdateToast({ visible, version, onDismiss, onDownload }) {
+    // UpdateToast — 5 個狀態:
+    //   'web'         → 沒 Electron(瀏覽器跑),點 Download 開新分頁(舊行為)
+    //   'available'   → Electron 偵測到新版,正在 / 即將下載(autoDownload=true)
+    //   'downloading' → 下載中,顯示進度條
+    //   'downloaded'  → 已下載,顯示「立即安裝 / 稍後」
+    //   'error'       → 更新失敗,顯示錯誤訊息
+    function UpdateToast({ info, onDismiss, onInstallNow, onDownloadWeb }) {
       const t = useT();
-      if (!visible) return null;
+      if (!info) return null;
+      const state = info.state || 'web';
+      const ver = info.version ? formatVersion(info.version) : '';
+      const fmtSize = (bytes) => {
+        if (!bytes) return '';
+        const mb = bytes / 1024 / 1024;
+        return mb >= 10 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
+      };
       return (
-        <div className="fixed bottom-12 right-6 z-30 px-4 py-3 rounded-xl bg-[#0c0c10] border border-[#00ff66]/60 glow-pink-soft flex items-center gap-3 animate-in">
-          <div className="text-sm">{formatVersion(version)} {t('update.available')}</div>
-          <button onClick={onDownload} className="text-[#33ff85] hover:text-[#99ffaa] text-sm font-medium">
-            {t('update.btnDownload')}
-          </button>
-          <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1" aria-label={t('update.btnDismiss')}>
-            <Icon.close className="w-3.5 h-3.5" />
-          </button>
+        <div className="fixed bottom-12 right-6 z-30 px-4 py-3 rounded-xl bg-[#0c0c10] border border-[#00ff66]/60 glow-pink-soft animate-in min-w-[280px] max-w-[360px]">
+          {state === 'web' && (
+            <div className="flex items-center gap-3">
+              <div className="text-sm">{ver} {t('update.available')}</div>
+              <button onClick={onDownloadWeb} className="text-[#33ff85] hover:text-[#99ffaa] text-sm font-medium">
+                {t('update.btnDownload')}
+              </button>
+              <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1 ml-auto" aria-label={t('update.btnDismiss')}>
+                <Icon.close className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          {state === 'available' && (
+            <div className="flex items-center gap-3">
+              <div className="text-sm flex-1">{ver} · {t('update.downloading')}…</div>
+              <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1" aria-label={t('update.btnDismiss')}>
+                <Icon.close className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          {state === 'downloading' && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm">{ver} · {t('update.downloading')}</div>
+                <div className="text-xs text-slate-400 mono">
+                  {Math.round(info.percent || 0)}%
+                  {info.transferred && info.total && (
+                    <> · {fmtSize(info.transferred)} / {fmtSize(info.total)}</>
+                  )}
+                </div>
+                <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1" aria-label={t('update.btnDismiss')}>
+                  <Icon.close className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-[#00ff66] transition-all duration-200"
+                  style={{ width: `${Math.max(0, Math.min(100, info.percent || 0))}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {state === 'downloaded' && (
+            <div className="flex items-center gap-3">
+              <div className="text-sm flex-1">{ver} · {t('update.downloaded')}</div>
+              <button
+                onClick={onInstallNow}
+                className="px-3 py-1.5 rounded bg-[#00ff66] hover:bg-[#33ff85] text-black text-xs font-bold transition"
+              >
+                {t('update.installNow')}
+              </button>
+              <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1" aria-label={t('update.installLater')}>
+                <Icon.close className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          {state === 'error' && (
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-amber-300 flex-1 break-words">
+                {t('update.errorPrefix')}{info.message}
+              </div>
+              <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1" aria-label={t('update.btnDismiss')}>
+                <Icon.close className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       );
     }
@@ -2338,18 +2409,58 @@ Chaser~阿明
       }, []);
 
       // App version 從 Electron IPC 讀(動態,跟 package.json 對齊),fallback 給 web 環境用
+      // 用 versionLoaded 控制:沒拿到真版本前不要 fire update check(否則會拿 fallback 跟 GitHub
+      // 比,造成「同版本一直跳新版 toast」的 race condition)
       const [appVersion, setAppVersion] = useState(APP_VERSION_FALLBACK);
+      const [versionLoaded, setVersionLoaded] = useState(!window.electronAPI?.appVersion);
       useEffect(() => {
-        if (window.electronAPI?.appVersion) {
-          window.electronAPI.appVersion().then(v => v && setAppVersion(v)).catch(() => {});
-        }
+        if (!window.electronAPI?.appVersion) return;
+        window.electronAPI.appVersion()
+          .then(v => { if (v) setAppVersion(v); })
+          .catch(() => {})
+          .finally(() => setVersionLoaded(true));
       }, []);
 
-      // Auto-update Tier 1:啟動時檢查 GitHub Releases,有新版顯示 toast
-      // updateInfo = { version, url } | null;dismissed 後本機記住版本號不再煩
+      // Auto-update:Electron 用 main.js autoUpdater 的 IPC 事件(in-app 下載 + 進度條 + 一鍵安裝)
+      // Web 用 GitHub API 檢查 + 點 Download 跳新分頁 fallback
+      // updateInfo state shape:
+      //   null
+      //   { state: 'web',         version, url }
+      //   { state: 'available',   version }
+      //   { state: 'downloading', version, percent, transferred, total }
+      //   { state: 'downloaded',  version }
+      //   { state: 'error',       message }
       const [updateInfo, setUpdateInfo] = useState(null);
+      const isElectronUpdate = !!window.electronAPI?.onUpdateAvailable;
 
-      // 真正執行檢查的函式 — 啟動時跑、SettingsModal 也可重複呼叫
+      // Electron mode:訂閱 main.js 的 autoUpdater IPC 事件
+      useEffect(() => {
+        if (!isElectronUpdate) return;
+        const dismissed = () => localStorage.getItem(DISMISSED_VERSION_KEY) || '';
+        const subs = [
+          window.electronAPI.onUpdateAvailable(({ version }) => {
+            if (version && version === dismissed()) return; // 用戶已 dismiss 過這版
+            setUpdateInfo({ state: 'available', version });
+          }),
+          window.electronAPI.onDownloadProgress((p) => {
+            setUpdateInfo(prev => prev && prev.state !== 'downloaded' && prev.state !== 'error'
+              ? { ...prev, state: 'downloading', percent: p.percent, transferred: p.transferred, total: p.total }
+              : prev);
+          }),
+          window.electronAPI.onUpdateDownloaded(({ version }) => {
+            // 下載完成 — 即使 user 之前 dismiss 過,也要顯示「立即安裝」(東西已下載完,不顯示太可惜)
+            setUpdateInfo({ state: 'downloaded', version });
+          }),
+          window.electronAPI.onUpdateError(({ message }) => {
+            // 錯誤 toast 不要打擾(autoUpdater 在離線 / GitHub 鎖時會吵),只 console log
+            console.warn('[update]', message);
+          }),
+        ];
+        return () => subs.forEach(unsub => { try { unsub && unsub(); } catch {} });
+      }, [isElectronUpdate]);
+
+      // 真正執行 GitHub API 檢查的函式 — 給 SettingsModal 的「檢查更新」按鈕用
+      // Electron mode 仍跑(用來給 status 顯示),但不會 setUpdateInfo(那是 IPC 事件的職責)
       const checkForUpdates = useCallback(async (opts = {}) => {
         const { ignoreDismissed = false } = opts;
         try {
@@ -2366,40 +2477,61 @@ Chaser~阿明
           const latest = release && release.tag_name;
           if (!latest) return 'error';
           const cmp = compareVersion(latest, appVersion);
-          if (cmp <= 0) return 'latest';
+          if (cmp <= 0) {
+            // 已是最新 — 清掉任何 stale toast(race fix:之前用 fallback 版本誤觸發的 toast)
+            if (!isElectronUpdate) setUpdateInfo(null);
+            return 'latest';
+          }
           const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY) || '';
-          if (!ignoreDismissed && latest === dismissed) return 'latest'; // dismiss 過就裝 latest
-          setUpdateInfo({ version: latest, url: release.html_url });
+          if (!ignoreDismissed && latest === dismissed) return 'latest'; // dismiss 過就當 latest
+          // Web mode 才設 updateInfo;Electron mode 由 IPC 事件驅動 toast,GitHub API 只回 status text
+          if (!isElectronUpdate) {
+            setUpdateInfo({ state: 'web', version: latest, url: release.html_url });
+          }
           return 'newer:' + formatVersion(latest);
         } catch {
           return 'error';
         }
-      }, [appVersion]);
+      }, [appVersion, isElectronUpdate]);
 
-      // 啟動時自動檢查(只有 dismiss 過 + 不忽略 dismiss 才不顯示 toast)
+      // 啟動時自動檢查 — 只在 web mode 跑(Electron mode 由 main.js autoUpdater 處理)
+      // 必須等 versionLoaded 才跑,避免拿 fallback 版本誤判成「有新版」
       useEffect(() => {
+        if (isElectronUpdate) return;
+        if (!versionLoaded) return;
         let cancelled = false;
         (async () => {
-          await new Promise(r => setTimeout(r, 0)); // 等 appVersion useEffect 一輪
           if (cancelled) return;
           checkForUpdates({ ignoreDismissed: false });
         })();
         return () => { cancelled = true; };
-      }, [checkForUpdates]);
+      }, [checkForUpdates, versionLoaded, isElectronUpdate]);
 
       const dismissUpdate = useCallback(() => {
-        if (updateInfo) localStorage.setItem(DISMISSED_VERSION_KEY, updateInfo.version);
+        if (updateInfo && updateInfo.version) {
+          localStorage.setItem(DISMISSED_VERSION_KEY, updateInfo.version);
+        }
         setUpdateInfo(null);
       }, [updateInfo]);
 
-      const downloadUpdate = useCallback(() => {
-        if (!updateInfo) return;
-        if (updateInfo.url) {
+      const downloadUpdateWeb = useCallback(() => {
+        if (updateInfo && updateInfo.url) {
           window.open(updateInfo.url, '_blank');
         }
-        // 點下載後就拿掉 toast 視覺(但不寫進 dismissed,改主意可從 SettingsModal「檢查更新」再 trigger)
+        // 點下載後拿掉 toast(但不寫進 dismissed,改主意可從 SettingsModal「檢查更新」再觸發)
         setUpdateInfo(null);
       }, [updateInfo]);
+
+      const installUpdateNow = useCallback(async () => {
+        if (!window.electronAPI?.installUpdateNow) return;
+        try {
+          await window.electronAPI.installUpdateNow();
+          // 成功的話 app 會立刻退出重啟,後續 code 不會跑
+        } catch (err) {
+          console.error('[installUpdateNow]', err);
+          setUpdateInfo({ state: 'error', message: String(err && err.message || err) });
+        }
+      }, []);
 
       // ────── Stable card IDs(UUID per card,跨 reorder 不會跑掉)──────
       // initial 從 localStorage 載;若舊版資料沒 cardIds,用 alignCardIds 從 text 推出來
@@ -3137,10 +3269,10 @@ Chaser~阿明
             onClose={() => setExportState(null)}
           />
           <UpdateToast
-            visible={!!updateInfo}
-            version={updateInfo ? updateInfo.version : ''}
+            info={updateInfo}
             onDismiss={dismissUpdate}
-            onDownload={downloadUpdate}
+            onDownloadWeb={downloadUpdateWeb}
+            onInstallNow={installUpdateNow}
           />
         </div>
       );
