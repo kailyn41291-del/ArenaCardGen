@@ -649,10 +649,12 @@
       canvas.height = h;
       const ctx = canvas.getContext('2d');
 
-      // 背景:transparent ON → 永遠不畫(B3:override 在透明模式下無作用,
-      // 否則會違反「透明背景」直覺,某幾張卡突然變實底,VJ 在 chroma key 場景會炸)
-      // transparent OFF → card.bgOverride > settings.bgColor > 黑色
-      if (!settings.transparent) {
+      // 背景畫的條件:
+      //   - transparent OFF:一律畫(card.bgOverride > settings.bgColor > 黑)
+      //   - transparent ON + 有 card.bgOverride:畫 override 色
+      //     (user 明確意圖:「我這張要特別設色,其他保持透明」場景)
+      //   - transparent ON + 沒 override:不畫(維持透明)
+      if (!settings.transparent || card.bgOverride) {
         ctx.fillStyle = card.bgOverride || settings.bgColor || '#000000';
         ctx.fillRect(0, 0, w, h);
       }
@@ -758,11 +760,13 @@
     function effectiveColors(card, settings) {
       const text = card.colorOverride
         || (settings.useTypeColors ? (TYPE_HEX[card.type] || '#FFFFFF') : (settings.textColor || '#FFFFFF'));
-      // bg:transparent 模式 → 沒實底(透明 = 假設黑色配合 contrast 計算)
-      // 非透明 → bgOverride 優先,否則 settings.bgColor,fallback 黑
+      // bg 邏輯跟 Canvas / Card 一致:
+      //   - transparent ON + 沒 override → 沒實底(不檢查 contrast,投到動態背景上)
+      //   - transparent ON + 有 override → 仍會畫 override 色,要檢查
+      //   - transparent OFF → 用 override 或全域色
       const bg = settings.transparent
-        ? null  // 透明,不檢查 contrast
-        : ((card.bgOverride || settings.bgColor || '#000000'));
+        ? (card.bgOverride || null)
+        : (card.bgOverride || settings.bgColor || '#000000');
       return { text, bg };
     }
     function isCardInvisible(card, settings) {
@@ -1016,13 +1020,13 @@ Chaser
             onClick={onClick}
             className={`
               aspect-video rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden
-              ${transparent ? 'card-tex-checker' : ''}
+              ${(transparent && !card.bgOverride) ? 'card-tex-checker' : ''}
               border transition-all duration-150 cursor-grab active:cursor-grabbing outline-none
               ${isSelected
                 ? 'border-[#00ff66]/90 glow-pink scale-[1.025]'
                 : 'border-slate-800/60 hover:border-slate-600/80 hover:scale-[1.015]'}
             `}
-            style={!transparent
+            style={(!transparent || card.bgOverride)
               ? { backgroundColor: card.bgOverride || bgColor || '#000000' }
               : undefined}
           >
@@ -1185,8 +1189,9 @@ Chaser
       }, [type, color, useOverride, bgOverrideHex, useBgOverride]);
 
       // S5:文字跟背景幾乎同色 → inline 警告
+      // (isCardInvisible 內部已處理 transparent + override 的邏輯)
       const previewCard = { ...card, colorOverride: useOverride ? color : null, bgOverride: useBgOverride ? bgOverrideHex : null };
-      const invisible = !isTransparentMode && isCardInvisible(previewCard, settings);
+      const invisible = isCardInvisible(previewCard, settings);
 
       // linesDraft 改變 → 判斷是否變成 override
       const onLinesChange = (val) => {
@@ -1354,23 +1359,21 @@ Chaser
 
                 {showBgSection && (
                   <div className="mt-2 space-y-2">
-                    {/* B3:透明模式下整個 disable + 寫提示 */}
-                    {isTransparentMode && (
-                      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-                        目前是透明模式 — 背景色 override 不會生效(匯出仍是透明 PNG)
+                    {isTransparentMode && useBgOverride && (
+                      <div className="rounded-lg border border-[#00ff66]/30 bg-[#00ff66]/5 px-3 py-2 text-[11px] text-[#99ffaa]">
+                        透明模式下,這張卡會用 override 顏色實底匯出(其他沒設 override 的卡仍透明)
                       </div>
                     )}
                     <div className={`flex items-center justify-between`}>
                       <span className="text-[10px] text-slate-500">蓋過全域背景色</span>
                       <button
                         onClick={() => setUseBgOverride(!useBgOverride)}
-                        disabled={isTransparentMode}
-                        className={`text-xs px-2 py-0.5 rounded ${useBgOverride ? 'bg-[#00ff66]/20 text-[#99ffaa]' : 'bg-slate-800 text-slate-400'} ${isTransparentMode ? 'opacity-40 cursor-not-allowed' : ''}`}
+                        className={`text-xs px-2 py-0.5 rounded ${useBgOverride ? 'bg-[#00ff66]/20 text-[#99ffaa]' : 'bg-slate-800 text-slate-400'}`}
                       >
                         {useBgOverride ? 'override 中' : '依設定'}
                       </button>
                     </div>
-                    <div className={`flex items-center gap-2 ${(!useBgOverride || isTransparentMode) ? 'opacity-40 pointer-events-none' : ''}`}>
+                    <div className={`flex items-center gap-2 ${!useBgOverride ? 'opacity-40 pointer-events-none' : ''}`}>
                       {BG_COLORS.map(c => (
                         <button
                           key={c.hex}
@@ -1396,8 +1399,8 @@ Chaser
                       type="text"
                       value={bgOverrideHex.toUpperCase()}
                       onChange={e => { setBgOverrideHex(e.target.value); setUseBgOverride(true); }}
-                      className={`w-full mono text-xs px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 focus:border-[#00ff66]/60 focus:outline-none ${(!useBgOverride || isTransparentMode) ? 'opacity-40' : ''}`}
-                      disabled={!useBgOverride || isTransparentMode}
+                      className={`w-full mono text-xs px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 focus:border-[#00ff66]/60 focus:outline-none ${!useBgOverride ? 'opacity-40' : ''}`}
+                      disabled={!useBgOverride}
                     />
                   </div>
                 )}
@@ -1453,7 +1456,9 @@ Chaser
             <div className="px-5 py-3 border-b border-slate-800/40">
               <div className="grid grid-cols-3 gap-1.5">
                 {previewCards.map((c, i) => {
-                  const bg = isTransparentMode ? null : (c.bgOverride || (settings && settings.bgColor) || '#000000');
+                  // 跟 Card 元件邏輯一致:transparent ON + override 仍顯示色;沒 override 才透明
+                  const showBg = !isTransparentMode || c.bgOverride;
+                  const bg = showBg ? (c.bgOverride || (settings && settings.bgColor) || '#000000') : null;
                   const text = c.colorOverride || (settings && settings.useTypeColors ? (TYPE_HEX[c.type] || '#FFFFFF') : (settings && settings.textColor) || '#FFFFFF');
                   return (
                     <div
@@ -2490,7 +2495,8 @@ Chaser~阿明
         const saved = initial.cardIds;
         if (Array.isArray(saved) && saved.length > 0) return saved;
         // 啟動時根據 initial text 算出來
-        const parsed = parseSetlist(initial.text || DEFAULT_TEXT);
+        // 沒 initial.text(全新安裝)→ 空陣列即可,user 第一次貼 setlist 會走 alignCardIds 補 UUID
+        const parsed = parseSetlist(initial.text || '');
         return parsed.map(() => generateCardId());
       });
 
