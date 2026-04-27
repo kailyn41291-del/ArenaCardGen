@@ -4,9 +4,12 @@
 
 **演唱會字卡產生器** — 把雜亂 RD(rundown / 流程表)轉成 1920×1080 PNG 字卡,給 VJ 在 Resolume / 大螢幕上即時切。
 
-[![Latest Release](https://img.shields.io/github/v/release/kailyn41291-del/ArenaCardGen)](https://github.com/kailyn41291-del/ArenaCardGen/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/kailyn41291-del/ArenaCardGen?include_prereleases&label=release)](https://github.com/kailyn41291-del/ArenaCardGen/releases/latest)
+[![Release Build](https://img.shields.io/github/actions/workflow/status/kailyn41291-del/ArenaCardGen/release.yml?label=build)](https://github.com/kailyn41291-del/ArenaCardGen/actions/workflows/release.yml)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-blue)]()
+[![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)]()
+[![Status](https://img.shields.io/badge/status-pre--release%20(beta)-orange)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 </div>
 
@@ -113,6 +116,22 @@ xattr -cr "/Applications/Arena Card Generator.app"
    - 可選「全部」或「只選中」
    - 匯出 1920×1080 PNG zip,直接拖進 Resolume
 ```
+
+### 在 Resolume Arena 怎麼接
+
+匯出的 ZIP 解開後是一堆 `01_S01_皮卡丘.png` 這種檔名(已排序、檔名前綴 `01_`、`02_` 對齊 setlist 順序),拖進 Arena 流程:
+
+1. **解壓 ZIP** 到任意資料夾(建議放在跟 composition 同一個專案目錄,方便管理)
+2. **拖整個資料夾到 Arena Composition** — Arena 會把每張 PNG 自動建成 clip,排在同一個 layer 上,順序就是檔名順序
+3. **指派 layer** — 通常 VJ 把字卡放在最上面 layer(blend mode = Screen / Add 看背景需要),底層留給背景影片
+4. **Trigger clip** — 用 keyboard / MIDI / OSC 切歌時觸發對應 clip。建議在 Arena 的 Keyboard tab 對 1-9 / Q-P 設快捷
+5. **微調** — 如果某張字卡顏色 / 排版不對,回 Arena Card Generator 改該卡 → 重匯出 → 覆蓋 Arena 那張(Arena 會自動 reload)
+
+> 💡 **TIP**:Arena 的 clip 預設用檔案修改時間排序。覆蓋單張字卡後,該 clip 在 layer 上的位置不會變(Arena 認 file path,不是 modified time)。
+
+> ⚠️ **背景透明的字卡**:Arena 字卡在 Screen / Add blend mode 下黑色背景會被 KEY 掉,但白色字仍顯示。如果你要用 Multiply 之類需要不透明背景,記得在「設定」關掉「背景透明 (PNG alpha)」再匯出。
+
+<!-- TODO: 之後補一個 Resolume 拖 PNG 的 GIF demo -->
 
 ### Rundown Parser(智慧解析)
 

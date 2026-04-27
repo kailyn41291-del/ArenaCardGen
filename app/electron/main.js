@@ -27,7 +27,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // sandbox: false 因為 preload 需要 require('fs') 寫檔。將來若改用 sidecar IPC 可改回 true
+      // TODO: 改用 sidecar / IPC-only 架構,讓 sandbox 回到 true
+      // 目前 preload 需要 require('fs') 寫 Gemini key 加密檔,所以 sandbox: false
+      // tracking issue: https://github.com/kailyn41291-del/ArenaCardGen/issues
+      // (需要重構 preload → 改全用 ipcMain.handle 的 IPC 操作 file system)
       sandbox: false,
     },
     icon: getIconPath(),
