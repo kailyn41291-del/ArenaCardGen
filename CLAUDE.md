@@ -115,6 +115,18 @@ pyinstaller --onefile --windowed \
 
 ## 協作規則
 
+### Ship 前必須 user 親自測過(寫 code 的 Claude 必讀)
+
+**新功能或修 bug 完成後,不要自動 push tag 觸發 CI release**。流程是:
+
+1. commit + push 到 feature branch(可以)
+2. **啟動 dev mode (Electron) 讓 user 親自驗證新功能跟 regression**
+3. **等 user 明確說「OK 可以 ship」/「上傳吧」才 push tag 觸發 release CI**
+
+例外:純文件 / CI workflow / .gitignore 等**不影響 user 體驗**的改動,可以直接 push tag。但只要動到 `app/web/index.html`、`app/electron/`、`assets/`,一律先讓 user 測。
+
+理由:user 是 VJ,演出工具任何 regression(視覺、字卡渲染、匯出)只有他親自試才看得出來。Reviewer 再嚴格也可能漏看 user 場景的 quirk。
+
 ### 不要 defer / 不要等下一版
 
 **遇到問題就現在修,不要分批、不要排隊到「下個版本再說」。** 不要說「先 ship 這版,下版再修」「這個是設計 trade-off」「這個技術 blocker 等之後處理」。如果有真的的 blocker(例如要付錢、要等第三方),直接講清楚不能修的根本原因,不要包裝成「下版再做」。
