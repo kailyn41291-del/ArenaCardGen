@@ -649,8 +649,11 @@
       canvas.height = h;
       const ctx = canvas.getContext('2d');
 
+      // 背景:transparent ON → 永遠不畫(B3:override 在透明模式下無作用,
+      // 否則會違反「透明背景」直覺,某幾張卡突然變實底,VJ 在 chroma key 場景會炸)
+      // transparent OFF → card.bgOverride > settings.bgColor > 黑色
       if (!settings.transparent) {
-        ctx.fillStyle = '#000000';
+        ctx.fillStyle = card.bgOverride || settings.bgColor || '#000000';
         ctx.fillRect(0, 0, w, h);
       }
 
@@ -750,25 +753,57 @@
       return parts.join('_') + '.png';
     }
 
+    // 文字跟背景色幾乎同色 → 字卡視覺上看不見(B4 防呆 helper)
+    // 用簡單 hex 比對 + WCAG-lite luminance diff,catches 純白底白字 / 同色 hex 等明顯衝突
+    function effectiveColors(card, settings) {
+      const text = card.colorOverride
+        || (settings.useTypeColors ? (TYPE_HEX[card.type] || '#FFFFFF') : (settings.textColor || '#FFFFFF'));
+      // bg:transparent 模式 → 沒實底(透明 = 假設黑色配合 contrast 計算)
+      // 非透明 → bgOverride 優先,否則 settings.bgColor,fallback 黑
+      const bg = settings.transparent
+        ? null  // 透明,不檢查 contrast
+        : ((card.bgOverride || settings.bgColor || '#000000'));
+      return { text, bg };
+    }
+    function isCardInvisible(card, settings) {
+      const { text, bg } = effectiveColors(card, settings);
+      if (!bg) return false; // 透明背景,不檢查
+      // hex 完全相等 → 一定看不見
+      if (String(text).toLowerCase() === String(bg).toLowerCase()) return true;
+      // luminance 差太小(WCAG 對比 < 1.5)也視為看不見
+      const lum = (hex) => {
+        const m = String(hex || '').match(/^#?([0-9a-f]{6})$/i);
+        if (!m) return 0.5;
+        const n = parseInt(m[1], 16);
+        const r = ((n >> 16) & 255) / 255;
+        const g = ((n >> 8) & 255) / 255;
+        const b = (n & 255) / 255;
+        return 0.299 * r + 0.587 * g + 0.114 * b;
+      };
+      return Math.abs(lum(text) - lum(bg)) < 0.15;
+    }
+
     // 匯出全部到 ZIP
-    async function exportAllToZip(cards, settings, onProgress) {
+    // originalIndices:若是「只匯出選中」場景,傳原始 setlist 中的位置 array (B1:檔名才不會被打亂)
+    async function exportAllToZip(cards, settings, onProgress, originalIndices) {
       const zip = new JSZip();
       const fileEntries = [];
 
       for (let i = 0; i < cards.length; i++) {
         const c = cards[i];
-        const fname = buildFilename(c, i);
+        const realIdx = originalIndices ? originalIndices[i] : i;
+        const fname = buildFilename(c, realIdx);
         try {
           const canvas = renderCardToCanvas(c, settings);
           const blob = await new Promise((resolve, reject) => {
             canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob 回傳 null')), 'image/png');
           });
           zip.file(fname, blob);
-          fileEntries.push({ idx: i + 1, total: cards.length, name: fname });
+          fileEntries.push({ idx: realIdx + 1, total: cards.length, name: fname });
         } catch (err) {
           // 渲染失敗(canvas tainted、記憶體不足、字型問題)— 不要整批匯出中斷,
           // 標記這張卡有錯,匯出完整體一併報告
-          fileEntries.push({ idx: i + 1, total: cards.length, name: fname, error: err.message || String(err) });
+          fileEntries.push({ idx: realIdx + 1, total: cards.length, name: fname, error: err.message || String(err) });
         }
         if (onProgress) onProgress(i + 1, cards.length, fname);
         // 讓 UI 有機會更新
@@ -933,7 +968,7 @@ Chaser
     // ────────────────────────────────────────────────────────────────
     // Card component
     // ────────────────────────────────────────────────────────────────
-    function Card({ card, idx, isSelected, onClick, transparent, useTypeColors, customColor, onDragStart, onDragEnd, onDragOver, onDrop, dropPosition }) {
+    function Card({ card, idx, isSelected, onClick, transparent, bgColor, useTypeColors, customColor, onDragStart, onDragEnd, onDragOver, onDrop, dropPosition }) {
       // 任何非空 label 都顯示大字 prefix(S## / INTRO / 轉場 / Chaser~ 等)
       const originalLabel = (card.label || '').trim();
       const hasOriginalLabel = originalLabel.length > 0;
@@ -981,12 +1016,15 @@ Chaser
             onClick={onClick}
             className={`
               aspect-video rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden
-              ${transparent ? 'card-tex-checker' : 'card-tex'}
+              ${transparent ? 'card-tex-checker' : ''}
               border transition-all duration-150 cursor-grab active:cursor-grabbing outline-none
               ${isSelected
                 ? 'border-[#00ff66]/90 glow-pink scale-[1.025]'
                 : 'border-slate-800/60 hover:border-slate-600/80 hover:scale-[1.015]'}
             `}
+            style={!transparent
+              ? { backgroundColor: card.bgOverride || bgColor || '#000000' }
+              : undefined}
           >
             {isSelected && (
               <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-[#00ff66] flex items-center justify-center text-black shadow-lg shadow-[#00ff66]/50 z-10">
@@ -1024,9 +1062,57 @@ Chaser
       { name: '粉', hex: '#FF0080' },
       { name: '黃', hex: '#FFFF00' },
     ];
+    // 背景色 preset(全域 bgColor 跟 card.bgOverride 共用)
+    // 黑是 default、白配深字、螢光綠是品牌色、螢光粉常用作 LIVE 強調
+    const BG_COLORS = [
+      { name: '黑', hex: '#000000' },
+      { name: '白', hex: '#FFFFFF' },
+      { name: '螢光綠', hex: '#00FF66' },
+      { name: '螢光粉', hex: '#FF0080' },
+    ];
 
-    function CardEditPanel({ card, idx, onUpdate, onDelete, onDuplicate }) {
+    // S3:抽 BgColorPicker — SettingsModal 跟 DefaultPanel 共用,免重複定義 drift
+    function BgColorPicker({ settings, setSettings, showHint }) {
+      if (settings.transparent) return null;
+      const set = (k, v) => setSettings(s => ({ ...s, [k]: v }));
+      const current = (settings.bgColor || '#000000').toLowerCase();
+      return (
+        <section>
+          <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">背景色(全域)</label>
+          <div className="flex items-center gap-2">
+            {BG_COLORS.map(c => (
+              <button
+                key={c.hex}
+                onClick={() => set('bgColor', c.hex)}
+                className={`w-9 h-9 rounded-full border-2 transition ${
+                  current === c.hex.toLowerCase()
+                    ? 'border-[#00ff66] scale-110'
+                    : 'border-slate-700 hover:border-slate-500'
+                }`}
+                style={{ backgroundColor: c.hex }}
+                title={c.name}
+              />
+            ))}
+            <div className="flex-1" />
+            <input
+              type="color"
+              value={settings.bgColor || '#000000'}
+              onChange={e => set('bgColor', e.target.value)}
+              className="w-9 h-9 rounded cursor-pointer border-2 border-slate-700"
+            />
+          </div>
+          {showHint && (
+            <div className="text-[10px] text-slate-500 mt-2">
+              單張卡片可在「編輯字卡」面板用 bg override 蓋過。
+            </div>
+          )}
+        </section>
+      );
+    }
+
+    function CardEditPanel({ card, idx, settings, onUpdate, onDelete, onDuplicate }) {
       if (!card) return null;
+      const isTransparentMode = !!(settings && settings.transparent);
 
       const safeLabel = String(card.label || '').trim();
       const safeTitle = String(card.title || '');
@@ -1058,6 +1144,10 @@ Chaser
       const [type, setType] = useState(card.type);
       const [color, setColor] = useState(card.colorOverride || '#FF0080');
       const [useOverride, setUseOverride] = useState(!!card.colorOverride);
+      // N3:local state 改名 bgOverrideHex,跟 settings.bgColor / Card props bgColor 區分
+      const [bgOverrideHex, setBgOverrideHex] = useState(card.bgOverride || '#000000');
+      const [useBgOverride, setUseBgOverride] = useState(!!card.bgOverride);
+      const [showBgSection, setShowBgSection] = useState(!!card.bgOverride); // S4:背景色 section 預設 collapsed
       const [linesDraft, setLinesDraft] = useState(initialDraft);
       const hasLineOverride = !!card.manualLines;
       const skipSyncRef = useRef(true); // 切卡片時跳過第一次 sync,避免把 colorOverride: null 寫進 store
@@ -1068,24 +1158,35 @@ Chaser
         setType(card.type);
         setColor(card.colorOverride || '#FF0080');
         setUseOverride(!!card.colorOverride);
+        setBgOverrideHex(card.bgOverride || '#000000');
+        setUseBgOverride(!!card.bgOverride);
+        setShowBgSection(!!card.bgOverride);
         setLinesDraft(card.manualLines || autoLines);
       }, [card._key]);
 
-      // 同步 type / color override 到 store(linesDraft 走另一條 onChange)
+      // 同步 type / color / bg override 到 store(linesDraft 走另一條 onChange)
       useEffect(() => {
         if (skipSyncRef.current) {
           skipSyncRef.current = false;
           return;
         }
-        // 只有真的跟 card 既有值不同才 update,避免把 colorOverride: null 寫進原本沒這欄的卡
+        // 只有真的跟 card 既有值不同才 update,避免把 null 寫進原本沒這欄的卡
         const nextColorOverride = useOverride ? color : null;
-        if (type === card.type && (card.colorOverride || null) === nextColorOverride) return;
+        const nextBgOverride = useBgOverride ? bgOverrideHex : null;
+        if (type === card.type
+            && (card.colorOverride || null) === nextColorOverride
+            && (card.bgOverride || null) === nextBgOverride) return;
         onUpdate(idx, {
           ...card,
           type,
           colorOverride: nextColorOverride,
+          bgOverride: nextBgOverride,
         });
-      }, [type, color, useOverride]);
+      }, [type, color, useOverride, bgOverrideHex, useBgOverride]);
+
+      // S5:文字跟背景幾乎同色 → inline 警告
+      const previewCard = { ...card, colorOverride: useOverride ? color : null, bgOverride: useBgOverride ? bgOverrideHex : null };
+      const invisible = !isTransparentMode && isCardInvisible(previewCard, settings);
 
       // linesDraft 改變 → 判斷是否變成 override
       const onLinesChange = (val) => {
@@ -1227,6 +1328,81 @@ Chaser
                 />
               </section>
 
+              {/* S5:contrast 警告 — 背景跟文字幾乎同色,匯出後字看不見 */}
+              {invisible && (
+                <div className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
+                  ⚠ 文字與背景幾乎同色,字卡可能完全看不見。改文字色或背景色。
+                </div>
+              )}
+
+              {/* 背景色 override — S4 預設 collapsed(只有 user 已 override 才展開)*/}
+              <section>
+                <button
+                  onClick={() => setShowBgSection(s => !s)}
+                  className="flex items-center justify-between w-full text-left group"
+                >
+                  <label className="text-[11px] uppercase tracking-widest text-slate-500 group-hover:text-slate-400 cursor-pointer">
+                    背景色 override
+                    {useBgOverride && (
+                      <span className="ml-2 normal-case tracking-normal text-[10px] text-[#33ff85]">
+                        · {bgOverrideHex.toUpperCase()}
+                      </span>
+                    )}
+                  </label>
+                  <span className="text-slate-500 text-xs">{showBgSection ? '▾' : '▸'}</span>
+                </button>
+
+                {showBgSection && (
+                  <div className="mt-2 space-y-2">
+                    {/* B3:透明模式下整個 disable + 寫提示 */}
+                    {isTransparentMode && (
+                      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+                        目前是透明模式 — 背景色 override 不會生效(匯出仍是透明 PNG)
+                      </div>
+                    )}
+                    <div className={`flex items-center justify-between`}>
+                      <span className="text-[10px] text-slate-500">蓋過全域背景色</span>
+                      <button
+                        onClick={() => setUseBgOverride(!useBgOverride)}
+                        disabled={isTransparentMode}
+                        className={`text-xs px-2 py-0.5 rounded ${useBgOverride ? 'bg-[#00ff66]/20 text-[#99ffaa]' : 'bg-slate-800 text-slate-400'} ${isTransparentMode ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        {useBgOverride ? 'override 中' : '依設定'}
+                      </button>
+                    </div>
+                    <div className={`flex items-center gap-2 ${(!useBgOverride || isTransparentMode) ? 'opacity-40 pointer-events-none' : ''}`}>
+                      {BG_COLORS.map(c => (
+                        <button
+                          key={c.hex}
+                          onClick={() => { setBgOverrideHex(c.hex); setUseBgOverride(true); }}
+                          className={`w-9 h-9 rounded-full border-2 transition ${
+                            bgOverrideHex.toLowerCase() === c.hex.toLowerCase() && useBgOverride
+                              ? 'border-[#00ff66] scale-110'
+                              : 'border-slate-700 hover:border-slate-500'
+                          }`}
+                          style={{ backgroundColor: c.hex }}
+                          title={c.name}
+                        />
+                      ))}
+                      <div className="flex-1" />
+                      <input
+                        type="color"
+                        value={bgOverrideHex}
+                        onChange={e => { setBgOverrideHex(e.target.value); setUseBgOverride(true); }}
+                        className="w-9 h-9 rounded cursor-pointer border-2 border-slate-700"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={bgOverrideHex.toUpperCase()}
+                      onChange={e => { setBgOverrideHex(e.target.value); setUseBgOverride(true); }}
+                      className={`w-full mono text-xs px-3 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 focus:border-[#00ff66]/60 focus:outline-none ${(!useBgOverride || isTransparentMode) ? 'opacity-40' : ''}`}
+                      disabled={!useBgOverride || isTransparentMode}
+                    />
+                  </div>
+                )}
+              </section>
+
             </div>
 
           <div className="border-t border-slate-800/60 p-4 flex gap-3">
@@ -1250,12 +1426,15 @@ Chaser
     // ────────────────────────────────────────────────────────────────
     // Bulk Edit Panel(2+ 張選取時)
     // ────────────────────────────────────────────────────────────────
-    function BulkEditPanel({ ids, cards, onApply, onClear }) {
+    function BulkEditPanel({ ids, cards, settings, onApply, onClear }) {
       const previewCards = ids.slice(0, 6).map(i => cards[i]).filter(Boolean);
       const moreCount = ids.length - previewCards.length;
+      const isTransparentMode = !!(settings && settings.transparent);
 
       const applyColor = (hex) => onApply(ids, { colorOverride: hex });
       const clearColor = () => onApply(ids, { colorOverride: null });
+      const applyBg = (hex) => onApply(ids, { bgOverride: hex });
+      const clearBg = () => onApply(ids, { bgOverride: null });
       const applyType = (type) => onApply(ids, { type });
 
       return (
@@ -1270,14 +1449,22 @@ Chaser
             </button>
           </div>
 
-            {/* 預覽縮圖列 */}
+            {/* 預覽縮圖列 — N1:套上實際 bgColor / bgOverride 才能反映 user 看到的效果 */}
             <div className="px-5 py-3 border-b border-slate-800/40">
               <div className="grid grid-cols-3 gap-1.5">
-                {previewCards.map((c, i) => (
-                  <div key={i} className="card-tex aspect-video rounded border border-[#00ff66]/40 flex items-center justify-center text-[10px] text-white font-bold uppercase tracking-tight px-1 truncate">
-                    {(c.label ? c.label + ' ' : '') + c.title.slice(0, 6)}
-                  </div>
-                ))}
+                {previewCards.map((c, i) => {
+                  const bg = isTransparentMode ? null : (c.bgOverride || (settings && settings.bgColor) || '#000000');
+                  const text = c.colorOverride || (settings && settings.useTypeColors ? (TYPE_HEX[c.type] || '#FFFFFF') : (settings && settings.textColor) || '#FFFFFF');
+                  return (
+                    <div
+                      key={i}
+                      className={`aspect-video rounded border border-[#00ff66]/40 flex items-center justify-center text-[10px] font-bold uppercase tracking-tight px-1 truncate ${!bg ? 'card-tex-checker' : ''}`}
+                      style={bg ? { backgroundColor: bg, color: text } : { color: text }}
+                    >
+                      {(c.label ? c.label + ' ' : '') + (c.title || '').slice(0, 6)}
+                    </div>
+                  );
+                })}
                 {moreCount > 0 && (
                   <div className="aspect-video rounded bg-slate-800/40 border border-slate-700/40 flex items-center justify-center text-xs text-slate-400">
                     +{moreCount}
@@ -1311,6 +1498,34 @@ Chaser
                   />
                   <button onClick={clearColor} className="flex-1 py-2.5 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 text-sm transition">
                     清除 override(回到自動)
+                  </button>
+                </div>
+              </section>
+
+              {/* 一次改背景色 */}
+              <section>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">套用背景色到全部</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {BG_COLORS.map(c => (
+                    <button
+                      key={c.hex}
+                      onClick={() => applyBg(c.hex)}
+                      className="aspect-square rounded-xl border-2 border-slate-700 hover:border-[#00ff66] hover:scale-105 transition flex flex-col items-center justify-center gap-1.5"
+                      style={{ backgroundColor: c.hex }}
+                    >
+                      <div className="text-xs font-bold mix-blend-difference text-white">{c.name}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <input
+                    type="color"
+                    onChange={e => applyBg(e.target.value)}
+                    className="w-12 h-10 rounded cursor-pointer border-2 border-slate-700"
+                    title="自訂背景色"
+                  />
+                  <button onClick={clearBg} className="flex-1 py-2.5 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 text-sm transition">
+                    清除背景 override(回到設定)
                   </button>
                 </div>
               </section>
@@ -1401,6 +1616,8 @@ Chaser
                 checked={settings.transparent}
                 onChange={v => set('transparent', v)}
               />
+
+              <BgColorPicker settings={settings} setSettings={setSettings} showHint />
 
               <section>
                 <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">5 字切法</label>
@@ -1787,24 +2004,45 @@ Chaser
     // ────────────────────────────────────────────────────────────────
     // Pre-Export Checklist
     // ────────────────────────────────────────────────────────────────
-    function ExportChecklist({ open, cards, fontsReady, onClose, onConfirm }) {
+    function ExportChecklist({ open, cards, selectedIds, settings, fontsReady, onClose, onConfirm }) {
       if (!open) return null;
-      const empties = cards.filter(c => !c.title).length;
-      const truncated = cards.filter(c => {
+      const hasSelection = selectedIds && selectedIds.size > 0;
+      // scope:default 'all'(主流操作是匯出全部);user 想 narrow 才主動切「只選中」
+      const [scope, setScope] = useState('all');
+      useEffect(() => { if (open) setScope('all'); }, [open]);
+
+      // 把選中的 idx 排序好,filter cards 跟 originalIndices 用
+      const selectedIdxArr = useMemo(
+        () => hasSelection ? Array.from(selectedIds).sort((a, b) => a - b) : [],
+        [selectedIds, hasSelection]
+      );
+
+      const { exportCards, originalIndices } = scope === 'selected' && hasSelection
+        ? {
+            exportCards: selectedIdxArr.map(i => cards[i]).filter(Boolean),
+            originalIndices: selectedIdxArr,  // B1:傳原始 idx,檔名才能對齊原 setlist 編號
+          }
+        : { exportCards: cards, originalIndices: null };
+
+      const empties = exportCards.filter(c => !c.title).length;
+      const truncated = exportCards.filter(c => {
         const t = (c.title || '').replace(/[((][^))]*[))]/g, '').trim();
         const isCJK = /[一-鿿]/.test(t);
         return (isCJK && t.length > 8) || (!isCJK && t.length > 18);
       }).length;
-      const dupes = cards.length - new Set(cards.map(c => `${c.label}_${c.title}`)).size;
+      const dupes = exportCards.length - new Set(exportCards.map(c => `${c.label}_${c.title}`)).size;
+      // B4:文字跟背景幾乎同色 → 字卡看不見
+      const invisible = exportCards.filter(c => isCardInvisible(c, settings)).length;
 
       const checks = [
         { ok: !!fontsReady,         label: '字型載入', detail: fontsReady ? 'Inter + 中文字型 OK' : '載入中…' },
         { ok: empties === 0,        label: '空字卡',   detail: empties === 0 ? '無' : `${empties} 張` },
         { ok: dupes === 0,          label: '檔名重複', detail: dupes === 0 ? '0' : `${dupes} 組(會合併)` },
         { ok: truncated === 0,      label: '標題截斷', detail: truncated === 0 ? '無' : `${truncated} 張會被截斷至 8 字` },
+        { ok: invisible === 0,      label: '文字可見性', detail: invisible === 0 ? '對比 OK' : `${invisible} 張背景與文字幾乎同色,可能完全看不見` },
       ];
       const allOk = checks.every(c => c.ok);
-      const canExport = fontsReady;
+      const canExport = fontsReady && exportCards.length > 0;
 
       return (
         <>
@@ -1818,6 +2056,34 @@ Chaser
                 </button>
               </div>
               <div className="p-6 space-y-3">
+                {/* 範圍選擇:全部 vs 只選中(只有 hasSelection 時才顯示)*/}
+                {hasSelection && (
+                  <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-3 space-y-2">
+                    <div className="text-[11px] uppercase tracking-widest text-slate-500">匯出範圍</div>
+                    <div role="radiogroup" aria-label="匯出範圍" className="grid grid-cols-2 gap-2">
+                      <button
+                        role="radio"
+                        aria-checked={scope === 'all'}
+                        onClick={() => setScope('all')}
+                        className={`py-2 px-3 rounded text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-[#00ff66]/60 ${
+                          scope === 'all'
+                            ? 'bg-[#00ff66] text-black'
+                            : 'bg-slate-800/60 text-slate-300 hover:bg-slate-700/60'
+                        }`}
+                      >全部 ({cards.length})</button>
+                      <button
+                        role="radio"
+                        aria-checked={scope === 'selected'}
+                        onClick={() => setScope('selected')}
+                        className={`py-2 px-3 rounded text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-[#00ff66]/60 ${
+                          scope === 'selected'
+                            ? 'bg-[#00ff66] text-black'
+                            : 'bg-slate-800/60 text-slate-300 hover:bg-slate-700/60'
+                        }`}
+                      >只選中 ({selectedIds.size})</button>
+                    </div>
+                  </div>
+                )}
                 {checks.map((c, i) => (
                   <div key={i} className="flex items-center gap-3 py-1">
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center ${c.ok ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
@@ -1832,7 +2098,7 @@ Chaser
               </div>
               <div className="px-6 pb-6 pt-2">
                 <button
-                  onClick={onConfirm}
+                  onClick={() => onConfirm(exportCards, originalIndices)}
                   disabled={!canExport}
                   className={`w-full py-3.5 rounded-xl text-base font-bold transition ${
                     !canExport
@@ -1842,7 +2108,7 @@ Chaser
                       : 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/30'
                   }`}
                 >
-                  {!canExport ? '字型載入中…' : allOk ? `匯出 ${cards.length} 張 PNG (zip)` : `仍要匯出 ${cards.length} 張(有警告)`}
+                  {!canExport ? (fontsReady ? '無卡可匯出' : '字型載入中…') : allOk ? `匯出 ${exportCards.length} 張 PNG (zip)` : `仍要匯出 ${exportCards.length} 張(有警告)`}
                 </button>
               </div>
             </div>
@@ -1979,6 +2245,8 @@ Chaser
               checked={settings.transparent}
               onChange={v => set('transparent', v)} />
 
+            <BgColorPicker settings={settings} setSettings={setSettings} showHint={false} />
+
             <section>
               <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">5 字標題切法</label>
               <div className="flex bg-slate-800/30 border border-slate-700/50 rounded-lg p-1">
@@ -2063,6 +2331,7 @@ Chaser~阿明
           textColor: '#FFFFFF',
           useTypeColors: true,
           transparent: true,
+          bgColor: '#000000',  // 全域預設背景色(transparent off 時生效,可被 card.bgOverride 覆蓋)
           split5: '3/2',
           ...rest,
         };
@@ -2821,6 +3090,7 @@ Chaser~阿明
                             isSelected={selectedIds.has(i)}
                             onClick={(e) => handleCardClick(i, e)}
                             transparent={settings.transparent}
+                            bgColor={settings.bgColor}
                             useTypeColors={settings.useTypeColors && !card.colorOverride}
                             customColor={card.colorOverride || settings.textColor}
                             onDragStart={onCardDragStart}
@@ -2846,6 +3116,7 @@ Chaser~阿明
                 <BulkEditPanel
                   ids={selectedIdxArr}
                   cards={cards}
+                  settings={settings}
                   onApply={updateMultipleCards}
                   onClear={clearSelection}
                 />
@@ -2853,6 +3124,7 @@ Chaser~阿明
                 <CardEditPanel
                   card={selectedCard}
                   idx={singleSelected}
+                  settings={settings}
                   onUpdate={updateCard}
                   onDelete={deleteCard}
                   onDuplicate={duplicateCard}
@@ -2916,15 +3188,18 @@ Chaser~阿明
           <ExportChecklist
             open={showChecklist}
             cards={cards}
+            selectedIds={selectedIds}
+            settings={settings}
             fontsReady={fontsReady}
             onClose={() => setShowChecklist(false)}
-            onConfirm={async () => {
+            onConfirm={async (exportCards, originalIndices) => {
               setShowChecklist(false);
-              setExportState({ current: 0, total: cards.length, currentFile: '', complete: false, errors: [] });
+              const list = exportCards || cards;
+              setExportState({ current: 0, total: list.length, currentFile: '', complete: false, errors: [] });
               try {
-                const fileEntries = await exportAllToZip(cards, settings, (current, total, currentFile) => {
+                const fileEntries = await exportAllToZip(list, settings, (current, total, currentFile) => {
                   setExportState(s => ({ ...(s || {}), current, total, currentFile, complete: false }));
-                });
+                }, originalIndices);
                 // 標記哪些卡渲染失敗(B-1:不能 silent dropped,VJ 在演唱會少 1 張字卡 = LIVE 災難)
                 const errors = (fileEntries || []).filter(e => e.error);
                 setExportState(s => ({ ...s, complete: true, errors }));
