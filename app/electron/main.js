@@ -69,8 +69,13 @@ app.whenReady().then(() => {
   });
 
   // Auto-update — 只在 packaged build 跑(dev 跑會報錯找不到 update server)
-  // 改成 in-app 流程:autoUpdater 事件全部 forward 到 renderer,toast 顯示進度條 + 安裝按鈕
-  if (!isDev) {
+  // 平台分流:
+  //   Windows / Linux:Tier 2 — autoUpdater 背景下載 + IPC events forward 到 renderer
+  //                    toast,user 點「立即安裝」app 重啟自動裝完
+  //   macOS:**跳過 Tier 2**,讓 renderer 的 Tier 1(GitHub API + web mode toast)接手
+  //          原因:沒做 Apple notarization,autoUpdater.quitAndInstall() 會被 Gatekeeper 擋,
+  //          下載成功也裝不上;不如不要假裝在下載,讓 user 直接看到「Download → 開新分頁」
+  if (!isDev && process.platform !== 'darwin') {
     const send = (channel, payload) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send(channel, payload);
@@ -101,6 +106,8 @@ app.whenReady().then(() => {
     // 用 checkForUpdates 而不是 checkForUpdatesAndNotify(後者會跳 native notification,
     // 我們改用 renderer 內 toast)
     autoUpdater.checkForUpdates().catch(() => {});
+  } else if (!isDev && process.platform === 'darwin') {
+    console.log('[autoUpdater] macOS: Tier 2 skipped (no Apple notarization), renderer Tier 1 (GitHub API + web toast) takes over');
   }
 });
 

@@ -2440,7 +2440,10 @@ Chaser~阿明
       //   { state: 'downloaded',  version }
       //   { state: 'error',       message }
       const [updateInfo, setUpdateInfo] = useState(null);
-      const isElectronUpdate = !!window.electronAPI?.onUpdateAvailable;
+      // macOS 跳過 Tier 2(autoUpdater 因沒 Apple notarization 裝不上,改走 Tier 1 web mode toast)
+      // 對應 main.js 的 platform gate;兩邊一起改才不會 IPC 事件孤兒 / 沒 toast 顯示
+      const isElectronUpdate = !!window.electronAPI?.onUpdateAvailable
+                              && window.electronAPI?.platform !== 'darwin';
 
       // Electron mode:訂閱 main.js 的 autoUpdater IPC 事件
       useEffect(() => {
