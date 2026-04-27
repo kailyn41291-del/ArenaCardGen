@@ -11,21 +11,6 @@ venv/
 env/
 ENV/
 
-# ── PyInstaller 產物 ──────────────────────────────────────
-build/
-dist/
-*.spec
-*.manifest
-
-# ── pytest / 測試產物 ─────────────────────────────────────
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# ── Jupyter / IPython ─────────────────────────────────────
-.ipynb_checkpoints/
-
 # ── IDE / 編輯器 ──────────────────────────────────────────
 .vscode/
 .idea/
@@ -72,11 +57,12 @@ exports/
 node_modules/
 out/
 .electron-cache/
-# (dist/ 已被 PyInstaller 段 ignore,涵蓋 app/dist/)
+# Electron build 產物 (electron-builder 輸出在 app/dist/)
+app/dist/
 
 # ── Web bundle build artifacts(esbuild + Tailwind + pdf worker)─────
 # CI 跟本地 build 時 generate,不 commit(讓每次 build 都新鮮)
 app/web/dist/
 
-# ── Claude Code 內部 state ───────────────────────────────
-.claude/scheduled_tasks.lock
+# ── Claude Code 內部設定 / state(不公開)──────────────
+.claude/
