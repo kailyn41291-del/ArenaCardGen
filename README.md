@@ -1,120 +1,184 @@
+<div align="center">
+
 # Arena Card Generator
 
-**演唱會字卡生成器** — 把雜亂的 Rundown 變成 1920×1080 PNG 字卡，專為演唱會 VJ 設計。
+**演唱會字卡產生器** — 把雜亂 RD(rundown / 流程表)轉成 1920×1080 PNG 字卡,給 VJ 在 Resolume / 大螢幕上即時切。
 
-![version](https://img.shields.io/badge/version-0.3.0--beta1-blue)
-![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
-![license](https://img.shields.io/badge/license-MIT-green)
+[![Latest Release](https://img.shields.io/github/v/release/kailyn41291-del/ArenaCardGen)](https://github.com/kailyn41291-del/ArenaCardGen/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS-blue)]()
+
+<!-- TODO: 加 demo gif / hero 截圖 -->
+<!-- ![demo](docs/demo.gif) -->
+
+</div>
 
 ---
 
 ## 這是什麼
 
-演唱會開始前，VJ 需要把每首歌的歌名、歌手、特殊提示整理成一張張字卡在舞台螢幕上顯示。傳統做法是手動在 Keynote / PowerPoint 一張張排，費時又容易出錯。
+VJ 在演唱會現場要把每首歌、TALKING、轉場切到大螢幕,通常要事前做好「字卡」(歌名 / S01 / TALKING-1 等)。傳統做法:Photoshop 一張一張畫 → 50 首歌一晚做完。
 
-Arena Card Generator 讓你：
-1. 貼上 Rundown（或上傳 PDF）
-2. AI 自動解析成結構化字卡
-3. 調整樣式、順序、文字
-4. 一鍵 ZIP 匯出全部 1920×1080 PNG
+這個工具讓你:
+
+1. **貼整份雜亂 RD**(從 Word / Excel / PDF 複製貼上)
+2. **點一下解析** → 自動切出乾淨 setlist
+3. **一鍵匯出 N 張 1920×1080 PNG zip** → 直接拖進 Resolume Arena
+
+支援繁體 / 簡體中文 + 英文混排,黑體粗字,VJ 投到 LED 牆很清楚。
 
 ---
 
-## 下載安裝
+## 安裝
 
-前往 [Releases](https://github.com/kailyn41291-del/ArenaCardGen/releases) 下載最新版本。
+到 [Releases](https://github.com/kailyn41291-del/ArenaCardGen/releases/latest) 下載對應平台的檔案。
 
 ### Windows
-下載 `arena-card-gen-vX.X.X-portable.zip`，解壓後雙擊 `Arena Card Generator.exe`。
 
-> ⚠️ **SmartScreen 警告**：點「其他資訊 → 仍要執行」。未做 code signing，非病毒。
+兩個版本選一:
+
+| 檔案 | 用途 |
+|---|---|
+| `Arena Card Generator Setup x.x.x.exe` | **安裝程式**(建議)— 開始功能表 + 桌面捷徑 + 自動更新 |
+| `Arena Card Generator x.x.x.exe` | Portable — 解壓即用,不寫進系統 |
+
+⚠️ **第一次打開會看到「Windows 已保護您的電腦」藍色視窗** — 這是因為我們沒付錢買 Microsoft 的數位簽證(EV Code Signing 一年 USD $300+)。**這不代表程式有問題**,點:
+
+> **其他資訊** → **仍要執行**
+
+之後就不會再跳。
 
 ### macOS
-| 機型 | 下載 |
-|------|------|
-| Apple Silicon (M1/M2/M3/M4) | `Arena.Card.Generator-X.X.X-arm64.dmg` |
-| Intel Mac | `Arena.Card.Generator-X.X.X.dmg` |
 
-雙擊 `.dmg` → 拖到 Applications 資料夾。
+下載對應晶片版本:
 
-> ⚠️ **macOS 14+ 第一次打開會跳「已損毀，無法打開」** — 這是 Gatekeeper 對未經 Apple notarize 的 app 的預設行為，**程式沒有壞**。
->
-> 打開「終端機」，貼上這行指令並按 Enter，之後雙擊就能開：
-> ```bash
-> xattr -cr "/Applications/Arena Card Generator.app"
-> ```
->
-> 原因是沒做 Apple notarization（要 $99/年 Developer Program）。app 本身有做 ad-hoc code sign，所以指令跑完就能正常雙擊使用。
+| 檔案 | 用途 |
+|---|---|
+| `Arena Card Generator-x.x.x.dmg` | Intel Mac |
+| `Arena Card Generator-x.x.x-arm64.dmg` | Apple Silicon (M1 / M2 / M3 / M4) |
 
----
+⚠️ **第一次打開可能會看到警告**(沒付 Apple Developer 認證費 $99 / 年的後果,**不代表 app 有問題**)。看到的訊息有兩種,做法不同:
 
-## 主要功能
+#### A. 「無法打開,因為它來自未識別的開發者」(舊版 macOS / 較寬鬆的設定)
 
-| 功能 | 說明 |
-|------|------|
-| **三欄式 UI** | Setlist 輸入 / 字卡 Grid 預覽 / 編輯 Panel |
-| **動態字級** | Canvas measureText 自動縮放，字不會超框 |
-| **Rundown Parser** | 規則解析 + Gemini AI 智慧辨識 + PDF 上傳 |
-| **多選 Bulk Edit** | 批次套用顏色、類型 |
-| **拖曳排序** | 卡片順序與 text 雙向同步 |
-| **Undo / Redo** | Ctrl+Z / Ctrl+Y，50 步 |
-| **ZIP 匯出** | 1920×1080 PNG × N，含匯出前 checklist |
-| **自動存檔** | localStorage 即時儲存，關掉重開不怕遺失 |
+1. 在 Finder 找到 `Arena Card Generator.app`(Applications 資料夾)
+2. **右鍵 → 打開**(不能雙擊)
+3. 跳出警告選 **打開**
 
----
+#### B. 「『Arena Card Generator』已損毀,無法打開。 你應該將其丟到『垃圾桶』」(macOS 13+ / Apple Silicon 常見)
 
-## Gemini API Key 設定
+⚠️ **不要丟垃圾桶**。這是 Gatekeeper 對 unsigned + 從網路下載的 app 的更嚴格擋法,「右鍵→打開」沒用了。兩種解法:
 
-Rundown Parser 的 AI 解析功能需要 Gemini API key：
+**最快:Terminal 指令**
 
-1. 前往 [Google AI Studio](https://aistudio.google.com/apikey) 取得免費 key（1500 次/天）
-2. 在 app 內開啟「Rundown Parser」
-3. 底部 input 貼入 key → 按 Enter 或點其他地方儲存
+打開「終端機」(Terminal.app),貼這行 → Enter:
 
-> Key 用 OS 原生加密（Windows DPAPI / macOS Keychain）儲存，不會明文寫入磁碟，也無法跨機器使用。
-
----
-
-## 開發者
-
-### 環境需求
-- Node.js >= 18
-- macOS build 需要 Xcode Command Line Tools
-
-### 本地執行
 ```bash
-cd app
+xattr -cr "/Applications/Arena Card Generator.app"
+```
+
+清掉 macOS 加的 `quarantine` 屬性,之後雙擊就能開。
+
+**或:系統設定(GUI)**
+
+1. 在「已損毀」對話框先按「**取消**」
+2. 開「**系統設定**」→「**隱私權與安全性**」
+3. 拉到下面看到「`Arena Card Generator` 已被阻擋…」→ 點「**仍要打開**」
+4. 跳新警告 →「**打開**」
+
+之後雙擊就正常。
+
+---
+
+## 怎麼用
+
+### 基本流程
+
+```
+1. 貼 RD 到左欄                ← 任何格式都先試,parser 會處理
+   或:點「📄 PDF」上傳 PDF      ← 自動抽文字
+   或:點「🧠 智慧解析」用 Gemini ← 規則 parser 解不掉的情況
+
+2. 中間 grid 即時預覽字卡       ← 每行一張,自動排版
+   - 點卡片可編輯個別屬性(顏色、類型、文字、背景)
+   - Ctrl/⌘ + 點 → 多選
+   - 拖曳卡片可重排順序
+   - Ctrl + 滾輪 → 調整縮放
+
+3. 右欄編輯
+   - 沒選卡 → 全域設定(預設色、自動配色、透明度、背景色)
+   - 選 1 張 → 個別 override
+   - 多選 → 批次套色 / 批次改類型
+
+4. 點右上「匯出所有字卡」
+   - 可選「全部」或「只選中」
+   - 匯出 1920×1080 PNG zip,直接拖進 Resolume
+```
+
+### Rundown Parser(智慧解析)
+
+某些 RD 太亂,規則 parser 切不出 → 開「Rundown Parser」彈窗用 Gemini AI 智慧解析。
+
+**需要自己的 Gemini API key**(免費 1500 次 / 天):
+
+1. 去 https://aistudio.google.com/apikey 申請(用你 Google 帳號,完全免費)
+2. App 內開「Rundown Parser」 → 底部「🧠 Gemini API key」貼入
+3. 按 Enter 或離開欄位才存
+
+#### 🔒 隱私保證
+
+- **你的 API key 用 OS 內建加密儲存**(Windows DPAPI / macOS Keychain),只能在你這台電腦解密。**絕對不會送到任何伺服器,不會跟 settings 一起匯出**。
+- **使用「智慧解析」時會把 RD 內容送到 Google Gemini API** — 如果你的 setlist 是有 NDA 的(藝人未公開曲目),**請先確認可以送出再用**。不想送 = 用規則 parser(免費、本地、不送出)。
+- App 不收集任何遙測 / 使用統計 / Crash report。
+- 唯一會連網的地方:啟動時檢查 GitHub Releases API 看有沒有新版(可在 Settings 的「檢查更新」按鈕關),以及匯出時載入 Google Fonts。
+
+---
+
+## 常見問題
+
+### Q: 字卡渲染怪 / 字超出邊框?
+
+回報 [Bug Issue](https://github.com/kailyn41291-del/ArenaCardGen/issues/new?template=bug_report.md) 並附上:有問題的 RD 文字 + 截圖。
+
+### Q: 我的 RD 規則 parser 解不出來?
+
+先試 Gemini 智慧解析(看上面 setup)。仍解不出來 → 開 Issue,附原始 RD 範例。
+
+### Q: 為什麼匯出的字卡跟預覽看起來顏色 / 排版不一樣?
+
+不應該。這是 bug,請回報並附「預覽截圖」+「匯出 PNG」對照。
+
+### Q: 自動更新怎麼運作?
+
+NSIS installer / .dmg 安裝的版本會在啟動時檢查新版本,**有新版會在背景下載**,完成後跳對話框問你「立刻重啟安裝 / 稍後」。Portable .exe 沒這功能,要手動重新下載。
+
+可以在 Settings 裡按「檢查更新」手動觸發。
+
+---
+
+## 回報 Bug / 建議功能
+
+- 🐛 [Bug Issue](https://github.com/kailyn41291-del/ArenaCardGen/issues/new?template=bug_report.md)
+- ✨ [Feature Request](https://github.com/kailyn41291-del/ArenaCardGen/issues/new?template=feature_request.md)
+- 💬 [Discussions](https://github.com/kailyn41291-del/ArenaCardGen/discussions) — 一般討論 / 問問題
+
+---
+
+## 開發者 / 想自己 build
+
+詳見 [CLAUDE.md](CLAUDE.md)(專案開發指南)。
+
+```bash
+git clone https://github.com/kailyn41291-del/ArenaCardGen.git
+cd ArenaCardGen/app
 npm install
-npm run dev
+./node_modules/.bin/electron .  # dev mode
 ```
 
-### Build
-```bash
-# Windows
-npm run build:win
-
-# macOS
-npm run build:mac
-```
-
-產出在 `app/dist/`。
-
----
-
-## 已知限制
-
-- 沒有 code signing / notarization，Win/Mac 首次開啟都有系統警告
-- 重複內容的卡片（如兩個歌名相同）reorder 後 override 對齊以內容為準，不保證位置完全還原
-- Auto-update 目前只有 toast 通知，不自動下載安裝
-
----
-
-## 回報問題
-
-[GitHub Issues](https://github.com/kailyn41291-del/ArenaCardGen/issues) 或直接聯絡 phang。
+CI 自動雙平台 build:`git tag vX.Y.Z && git push origin vX.Y.Z` → GitHub Actions 自動產 Win + Mac binary attach 到 release。
 
 ---
 
 ## License
 
-MIT © phang + kailyn41291-del
+[MIT](LICENSE) — 兩位 VJ(phang + kailyn)做的自用工具,公開分享給整個 VJ 圈子。歡迎 fork、改、商用。

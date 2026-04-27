@@ -74,5 +74,9 @@ out/
 .electron-cache/
 # (dist/ 已被 PyInstaller 段 ignore,涵蓋 app/dist/)
 
+# ── Web bundle build artifacts(esbuild + Tailwind + pdf worker)─────
+# CI 跟本地 build 時 generate,不 commit(讓每次 build 都新鮮)
+app/web/dist/
+
 # ── Claude Code 內部 state ───────────────────────────────
 .claude/scheduled_tasks.lock

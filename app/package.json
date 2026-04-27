@@ -4,17 +4,29 @@
   "description": "演唱會字卡生成器 — 把雜亂 RD 變成 1920×1080 PNG 字卡",
   "main": "electron/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron .",
-    "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac",
-    "build": "electron-builder -mw"
+    "start": "npm run build:web && electron .",
+    "dev": "concurrently -n esbuild,tailwind,electron -c green,cyan,yellow \"npm:watch:js\" \"npm:watch:css\" \"npm run watch:electron\"",
+    "watch:js": "esbuild web/src/main.jsx --bundle --outfile=web/dist/bundle.js --jsx=automatic --loader:.js=jsx --target=chrome120 --sourcemap --watch",
+    "watch:css": "tailwindcss -i web/src/input.css -o web/dist/tailwind.css --watch",
+    "watch:electron": "node tools/copy-pdf-worker.js && wait-on -d 500 web/dist/bundle.js web/dist/tailwind.css && electron .",
+    "build:js": "esbuild web/src/main.jsx --bundle --outfile=web/dist/bundle.js --jsx=automatic --loader:.js=jsx --target=chrome120 --minify",
+    "build:css": "tailwindcss -i web/src/input.css -o web/dist/tailwind.css --minify",
+    "build:worker": "node tools/copy-pdf-worker.js",
+    "build:web": "npm run build:js && npm run build:css && npm run build:worker",
+    "build:win": "npm run build:web && electron-builder --win",
+    "build:mac": "npm run build:web && electron-builder --mac",
+    "build": "npm run build:web && electron-builder -mw"
   },
   "author": "phang + kailyn41291-del",
   "license": "MIT",
   "devDependencies": {
+    "@tailwindcss/forms": "^0.5.11",
+    "concurrently": "^9.2.1",
     "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.28.0",
+    "tailwindcss": "^3.4.19",
+    "wait-on": "^9.0.5"
   },
   "build": {
     "appId": "com.arenacardgen.app",
@@ -25,7 +37,9 @@
     "afterPack": "./scripts/sign-mac.js",
     "files": [
       "electron/**/*",
-      "web/**/*",
+      "web/index.html",
+      "web/dist/**/*",
+      "!web/src/**/*",
       "../assets/**/*"
     ],
     "extraResources": [
@@ -38,11 +52,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "../assets/logo-icon.png"
@@ -51,7 +69,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "../assets/logo-icon.png",
@@ -65,6 +86,20 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kailyn41291-del",
+        "repo": "ArenaCardGen"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3",
+    "jszip": "^3.10.1",
+    "pdfjs-dist": "^5.6.205",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
   }
 }

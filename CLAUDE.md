@@ -115,6 +115,46 @@ pyinstaller --onefile --windowed \
 
 ## 協作規則
 
+### 對話接力(對話 token 快爆掉時的接班流程)
+
+**主動偵測**:當對話歷史很長(感覺 context 已用 ~70% 或 user 提示「對話卡」),寫 Claude 必須**主動**做下面三件事,不要等 user 要才做:
+
+1. **commit 所有可 commit 的 working tree 改動**(沒做完的功能也 commit 進 feature branch,handoff 寫清楚未完狀態)
+2. **寫一份 session handoff** 到 `memory/session_handoff_v0_X_Y.md`(X = 主版本、Y = handoff 序號),內容必須包含:
+   - **戰略決定** — 上一個 session 的關鍵 pivot / 決策(別讓下個 session 再 pivot)
+   - **目前 repo 狀態** — branch、未 commit 改動、最近幾個 commit hash
+   - **進行中的工作** — 我做到哪、剩下什麼步驟、預期的接續做法
+   - **已知 trade-off / 不要再追的事** — 避免下個 session 重新跑一輪 review 提同樣的 finding
+   - **檔案行號參考**(grep 確認過的)+ 主要組件位置
+   - **使用者偏好** — 從這次對話學到的 user style(回應長度、不要 yes-mode、不要 defer 等)
+3. **明確告訴 user 兩件事**:
+   - 「對話可以 `/clear` 了」
+   - **複製貼上的下個 session 開場 prompt** — 必須具體到「繼續 Arena Card Generator,讀 `memory/session_handoff_v0_X_Y.md`,接著做 [具體待辦]」,user 直接貼這句話進新 session 就能無縫接續
+
+handoff 用繁體中文。具體格式參考 `memory/session_handoff_v0_3.md`。
+
+### Ship 前必須 user 親自測過(寫 code 的 Claude 必讀)
+
+**新功能或修 bug 完成後,不要自動 push tag 觸發 CI release**。流程是:
+
+1. commit + push 到 feature branch(可以)
+2. **啟動 dev mode (Electron) 讓 user 親自驗證新功能跟 regression**
+3. **等 user 明確說「OK 可以 ship」/「上傳吧」才 push tag 觸發 release CI**
+
+例外:純文件 / CI workflow / .gitignore 等**不影響 user 體驗**的改動,可以直接 push tag。但只要動到 `app/web/index.html`、`app/electron/`、`assets/`,一律先讓 user 測。
+
+理由:user 是 VJ,演出工具任何 regression(視覺、字卡渲染、匯出)只有他親自試才看得出來。Reviewer 再嚴格也可能漏看 user 場景的 quirk。
+
+### 不要 defer / 不要等下一版
+
+**遇到問題就現在修,不要分批、不要排隊到「下個版本再說」。** 不要說「先 ship 這版,下版再修」「這個是設計 trade-off」「這個技術 blocker 等之後處理」。如果有真的的 blocker(例如要付錢、要等第三方),直接講清楚不能修的根本原因,不要包裝成「下版再做」。
+
+例外:
+- 純付費障礙(code signing cert、第三方 API quota)— 直接告訴 user 是錢的問題,不要說「我之後處理」
+- 真的需要 user 動作的事(開 Developer Mode、提供帳號)— 直接列出 user 要做什麼,不要 vague 說「等之後」
+
+任何「之後再說」「下版再做」「先放著」的句型 = 拖延信號,**寫之前先問自己:這真的不能現在做嗎?**
+
 ### 嚴格審視機制(寫 code 的 Claude 必讀)
 
 User 要求對重大改動由獨立的 [strict-reviewer agent](.claude/agents/strict-reviewer.md) 做第二意見審視。**寫 code 的你不該自己評斷自己的工作,要主動 spawn reviewer**,把 reviewer 的結果原文回報給 user(不過濾、不軟化)。

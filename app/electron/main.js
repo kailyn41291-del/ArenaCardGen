@@ -1,8 +1,15 @@
-const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, safeStorage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { autoUpdater } = require('electron-updater');
 
 const isDev = !app.isPackaged;
+
+// Auto-update Tier 2 設定 — 啟動後自動檢查 GitHub Releases,有新版自動下載並提示重啟安裝
+// 對 portable .exe 不 work,只支援 NSIS installer 跟 macOS dmg(zip 版會 silent skip)
+autoUpdater.autoDownload = true;       // 自動下載
+autoUpdater.autoInstallOnAppQuit = true; // app 退出時自動裝
+autoUpdater.allowPrerelease = true;     // beta 版也納入(因為我們現在主要是 prerelease)
 
 let mainWindow;
 
@@ -57,6 +64,41 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Auto-update — 只在 packaged build 跑(dev 跑會報錯找不到 update server)
+  // 改成 in-app 流程:autoUpdater 事件全部 forward 到 renderer,toast 顯示進度條 + 安裝按鈕
+  if (!isDev) {
+    const send = (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, payload);
+      }
+    };
+    autoUpdater.on('update-available', (info) => {
+      send('update-available', { version: info.version });
+    });
+    autoUpdater.on('update-not-available', () => {
+      send('update-not-available', {});
+    });
+    autoUpdater.on('download-progress', (p) => {
+      // p = { percent, transferred, total, bytesPerSecond }
+      send('download-progress', {
+        percent: p.percent,
+        transferred: p.transferred,
+        total: p.total,
+        bytesPerSecond: p.bytesPerSecond,
+      });
+    });
+    autoUpdater.on('update-downloaded', (info) => {
+      send('update-downloaded', { version: info.version });
+    });
+    autoUpdater.on('error', (err) => {
+      console.warn('[autoUpdater]', err.message);
+      send('update-error', { message: err.message || String(err) });
+    });
+    // 用 checkForUpdates 而不是 checkForUpdatesAndNotify(後者會跳 native notification,
+    // 我們改用 renderer 內 toast)
+    autoUpdater.checkForUpdates().catch(() => {});
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -70,6 +112,17 @@ app.on('window-all-closed', () => {
 // ────────────────────────────────────────────────────────────────
 
 ipcMain.handle('app-version', () => app.getVersion());
+
+// 立即重啟並安裝下載好的更新
+ipcMain.handle('install-update-now', () => {
+  try {
+    autoUpdater.quitAndInstall();
+    return { ok: true };
+  } catch (err) {
+    console.error('[install-update-now]', err);
+    return { ok: false, error: err.message };
+  }
+});
 
 // ────────────────────────────────────────────────────────────────
 // Gemini API key — 用 safeStorage 加密(OS keychain:Windows DPAPI / macOS Keychain)

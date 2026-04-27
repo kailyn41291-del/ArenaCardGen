@@ -1,8 +1,7 @@
 // Ad-hoc codesign for macOS Electron app.
-// Required on macOS 14+ for hardened runtime; without this the app may fail to
-// launch even after `xattr -cr` removes the quarantine flag.
-// Does NOT replace Apple notarization — users still need to run `xattr -cr`
-// once on first install. See README.
+// Required on macOS 14+ for hardened runtime.
+// Does NOT replace Apple notarization — users still run `xattr -cr` once
+// to remove the quarantine flag from browser-downloaded .dmg.
 
 const { execSync } = require('child_process');
 const path = require('path');
