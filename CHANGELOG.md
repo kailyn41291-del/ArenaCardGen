@@ -8,8 +8,17 @@
 
 ## [Unreleased]
 
+(無)
+
+---
+
+## [v0.3.0-beta13] — 2026-04-28
+
 ### Changed
 - **Releases 頁排版改造**:`.github/workflows/release.yml` 加 "Generate release body" step,push tag 自動產 release notes,頂端釘 3 個顯眼下載連結(Win Setup / Mac arm64 / Mac Intel),其它 `.zip` / `.blockmap` / `.yml` / portable `.exe` 收進 `<details>` 摺疊。**user 第一眼從「13 個檔案不知道點哪個」變「請選你的平台」3 選 1**;build artifacts 一個都沒砍(portable + auto-update infra 全留)
+
+### Notes
+- 是 Win + Mac runner heredoc body 對齊驗證 target(兩邊各產一份相同 body,後寫者覆蓋,看 GitHub release 頁 user 視角是不是真的乾淨了)
 
 ---
 
