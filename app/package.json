@@ -35,6 +35,7 @@
       "output": "dist"
     },
     "afterPack": "./scripts/sign-mac.js",
+    "artifactName": "Arena-Card-Generator-${version}-${arch}.${ext}",
     "files": [
       "electron/**/*",
       "web/index.html",
@@ -85,7 +86,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "artifactName": "Arena-Card-Generator-Setup-${version}.${ext}"
     },
     "publish": [
       {
