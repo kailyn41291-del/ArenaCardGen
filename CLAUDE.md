@@ -115,6 +115,24 @@ pyinstaller --onefile --windowed \
 
 ## 協作規則
 
+### 對話接力(對話 token 快爆掉時的接班流程)
+
+**主動偵測**:當對話歷史很長(感覺 context 已用 ~70% 或 user 提示「對話卡」),寫 Claude 必須**主動**做下面三件事,不要等 user 要才做:
+
+1. **commit 所有可 commit 的 working tree 改動**(沒做完的功能也 commit 進 feature branch,handoff 寫清楚未完狀態)
+2. **寫一份 session handoff** 到 `memory/session_handoff_v0_X_Y.md`(X = 主版本、Y = handoff 序號),內容必須包含:
+   - **戰略決定** — 上一個 session 的關鍵 pivot / 決策(別讓下個 session 再 pivot)
+   - **目前 repo 狀態** — branch、未 commit 改動、最近幾個 commit hash
+   - **進行中的工作** — 我做到哪、剩下什麼步驟、預期的接續做法
+   - **已知 trade-off / 不要再追的事** — 避免下個 session 重新跑一輪 review 提同樣的 finding
+   - **檔案行號參考**(grep 確認過的)+ 主要組件位置
+   - **使用者偏好** — 從這次對話學到的 user style(回應長度、不要 yes-mode、不要 defer 等)
+3. **明確告訴 user 兩件事**:
+   - 「對話可以 `/clear` 了」
+   - **複製貼上的下個 session 開場 prompt** — 必須具體到「繼續 Arena Card Generator,讀 `memory/session_handoff_v0_X_Y.md`,接著做 [具體待辦]」,user 直接貼這句話進新 session 就能無縫接續
+
+handoff 用繁體中文。具體格式參考 `memory/session_handoff_v0_3.md`。
+
 ### Ship 前必須 user 親自測過(寫 code 的 Claude 必讀)
 
 **新功能或修 bug 完成後,不要自動 push tag 觸發 CI release**。流程是:
