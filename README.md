@@ -11,6 +11,8 @@
 [![Status](https://img.shields.io/badge/status-pre--release%20(beta)-orange)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+![Arena Card Generator screenshot](assets/screenshot-hero.png)
+
 </div>
 
 ---
