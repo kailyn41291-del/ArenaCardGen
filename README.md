@@ -183,11 +183,15 @@ xattr -cr "/Applications/Arena Card Generator.app"
 
 ### Q: 自動更新怎麼運作?
 
-**Windows(NSIS installer)**:啟動時檢查新版,有新版會在背景下載,完成後跳「立刻重啟安裝 / 稍後」對話框。Portable `.exe` 沒這功能,要手動重新下載。
+**全平台**(v0.3.0-beta9 起):啟動時檢查新版,**有新版會在背景下載**,完成後右下角 toast 顯示「已下載,可安裝」+「立即安裝」按鈕,點下去 app 重啟自動裝完。
 
-**macOS(.dmg)**:**只會跳 toast 提示「有新版」,不會自動安裝**(因為沒做 Apple notarization,electron-updater 在 Mac 上裝不上沒 notarize 的更新)。看到 toast 請手動到 [Releases](https://github.com/kailyn41291-del/ArenaCardGen/releases/latest) 下載新版 `.dmg`,並重新跑一次 `xattr -cr "/Applications/Arena Card Generator.app"` 清掉 quarantine。
+- **Windows**:NSIS installer 全套支援。Portable `.exe` 沒這功能,要手動重新下載
+- **macOS**:走 `.zip` 路徑(electron-updater 自動挑),ad-hoc 簽名 + Squirrel.Mac in-place replace,不撞 Gatekeeper。第一次裝的 `.dmg` 仍要跑一次 `xattr -cr` 清 quarantine(只跟「從瀏覽器下載 .dmg」這動作有關,跟自動更新內部走的 `.zip` 沒關係)
+- 萬一 `quitAndInstall` 失敗(極少見),自動 fallback 開瀏覽器跳 Releases 頁讓你手抓最新版
 
 可以在 Settings 裡按「檢查更新」手動觸發。
+
+> 💡 **beta1~beta6 user**:你那版有 URL 不對盤的 bug,自動更新走不通。請手動到 Releases 下載 beta9+ 安裝程式蓋過去,之後就會跑。
 
 ---
 

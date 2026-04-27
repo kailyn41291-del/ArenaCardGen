@@ -30,29 +30,30 @@ npm run dev
 
 User 第一次安裝要手動跑 `xattr -cr "/Applications/Arena Card Generator.app"` 清除 quarantine 旗標,或用系統設定「隱私權與安全性」按「仍要打開」。詳見 README。
 
-### macOS auto-update — 完全停用 Tier 2
+### macOS auto-update — 全平台 Tier 2,Mac 走 `.zip` 路徑
 
-沒 notarize 的後果:**electron-updater 在 macOS 上不只 install 會被擋,連 download 階段都會在 `~/Library/Caches/arena-card-gen-updater/` 留半成品垃圾檔**。所以 v0.3.0-beta8 起 macOS 完全停用 Tier 2,只用 Tier 1。
+beta8 之前曾經試過 `.dmg`,撞 Gatekeeper 擋 `quitAndInstall`。beta8 先把 macOS Tier 2 整個停掉走 web mode toast。**beta9 起借用 LTCast pattern**:同時 ship `.dmg` + `.zip`,electron-updater 在 Mac 自動挑 `.zip` 下載解壓,在 ad-hoc 簽名兩邊一致下 Squirrel.Mac 允許 in-place replace,`quitAndInstall` 不會撞 Gatekeeper。
 
-實作位置(三個檔案要一起改才不會 IPC 事件孤兒):
-- `app/electron/main.js`:`if (!isDev && process.platform !== 'darwin')` 圍住整個 autoUpdater 訂閱 + `checkForUpdates()`,darwin 上連 listener 都不掛
-- `app/electron/preload.js`:暴露 `platform: process.platform` 給 renderer 識別
-- `app/web/src/main.jsx`:`isElectronUpdate` 多一個 `&& platform !== 'darwin'` gate,darwin 上 fall through 到 Tier 1 的 GitHub API check
+設定位置:
+- `app/package.json` `mac.target`:`dmg` + `zip` 並存
+- `app/electron/main.js`:autoUpdater 訂閱沒 platform gate,全平台跑
+- `app/electron/preload.js`:`platform: process.platform` 仍暴露(以後若 .zip 路徑撞牆需要 fallback 用)
+- `app/web/src/main.jsx`:`isElectronUpdate` 沒 darwin 例外
 
-實際 macOS user 看到的:
-- 啟動 5 秒後 renderer fetch GitHub Releases API → toast 顯示「v0.3.0-betaX 可下載 / Download」
-- 點 Download → 開新分頁到 release 頁 → user 自己抓新 `.dmg`
-- 安裝後跑 `xattr -cr` 一次
+實際 user 流程(全平台一致):
+- 啟動 5 秒後 autoUpdater 偵測新版 → toast 顯示「v0.3.0-betaX · 下載中」+ 進度條
+- 下載完成 → toast 變「已下載,可安裝」+「立即安裝」按鈕
+- 點立即安裝 → app 重啟自動裝完 → 開回新版
 
-Windows / Linux 不受影響(Tier 2 完整流程):背景下載 + 進度條 + 「立即安裝」按鈕 → app 重啟自動裝完。
+如果 macOS 上 `.zip` 路徑撞牆(`quitAndInstall` fail / Gatekeeper 擋解壓),`install-update-now` IPC handler 有 fallback:`shell.openExternal` 跳到 Releases 頁讓 user 手動抓。最差情況退化到 web 模式,不會卡死。
 
-修這個讓 macOS 也走 Tier 2 的唯一方法是付 Apple Developer Program 的 $99/年做 notarization,目前 trade-off 不付。
+第一次裝 .dmg 仍要跑 `xattr -cr` 清 quarantine(這是 Gatekeeper 對「從瀏覽器下載」的旗標,跟 auto-update 內走的 .zip 路徑無關)。
 
 ## 已知技術債
 
 - **`app/electron/main.js` 內 `sandbox: false`** — preload 需要 `require('fs')` 才寫得了 file。長期應改用 sidecar / IPC,讓 sandbox 回到 `true`。Tracking issue 待開。
 - **重複內容的字卡 reorder 後 override** 用內容對齊,不保證跟 reorder 前完全相同(corner case)。
-- **Auto-update 三條 path**:Tier 1(GitHub API check + web mode toast,瀏覽器 + macOS 用)/ Tier 2(electron-updater IPC + 進度條 + 立即安裝,Windows + Linux 用)。macOS 因 Apple notarization 缺,Tier 2 完全停用走 Tier 1。
+- **Auto-update path**:全平台走 Tier 2(electron-updater IPC + 進度條 + 立即安裝)。Mac 透過 `.zip` 解壓 + ad-hoc Squirrel.Mac in-place replace 繞過 Gatekeeper。Tier 1(GitHub API + web mode toast)只在純瀏覽器跑(沒 electronAPI)時用,作為 fallback。
 
 ## 跑 lint / 測試
 
