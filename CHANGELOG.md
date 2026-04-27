@@ -8,8 +8,21 @@
 
 ## [Unreleased]
 
+(無)
+
+---
+
+## [v0.3.0-beta10] — 2026-04-27
+
 ### Added
 - **`install-update-now` IPC handler 加 fallback**:`autoUpdater.quitAndInstall()` 失敗時(Win 下例如權限 / 防毒擋安裝程式),自動 `shell.openExternal` 跳到 GitHub Releases 頁,user 仍能手動下載最新安裝程式。借用 LTCast pattern,雙保險
+
+### Changed
+- README + DEVELOPMENT.md 對齊 beta9 起「全平台 Tier 2,Mac 走 .zip 路徑」(原本還停在 beta8 「macOS 完全停用 Tier 2」過時說法)
+- README FAQ「自動更新怎麼運作?」改寫成全平台一致流程 + 給 beta1~beta6 user 升級指引
+
+### Notes
+- 是 Mac 端 e2e 驗證 target(從 beta9 升 beta10 走 .zip 路徑,看 quitAndInstall 是否真能 in-place replace .app)
 
 ---
 
