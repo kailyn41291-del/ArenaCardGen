@@ -116,7 +116,11 @@ jobs:
           cat release_body.md
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+        # 釘 SHA 而不是 @v2:third-party action,維護者帳號被駭可能 push
+        # 惡意 v2(mutable tag),CI 下次跑就中招。SHA 釘版可避免。
+        # 升級時:看 https://github.com/softprops/action-gh-release/releases
+        # 確認新 release notes 後換 SHA + 在這條 comment 旁邊註記版本
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (2026-01-xx)
         with:
           # 自動 match 觸發的 tag
           files: |
