@@ -12,6 +12,21 @@
 
 ---
 
+## [v0.3.0-beta8] — 2026-04-27
+
+### Fixed
+- **macOS 完全停用 Tier 2 auto-update**,只用 Tier 1 web mode toast。beta6/7 在 macOS 上的 in-app 流程是壞的:autoUpdater 假裝在背景下載 + 顯示進度條 + 「立即安裝」按鈕,但 `quitAndInstall()` 因沒 Apple notarization 被 Gatekeeper 擋,實際無效;下載階段還會在 `~/Library/Caches/arena-card-gen-updater/` 留半成品垃圾。修法是 `app/electron/main.js` `process.platform === 'darwin'` 整個 skip autoUpdater 訂閱,讓 renderer 的 Tier 1 接手 → toast 出現「v0.3.0-betaX 可下載 / Download」,點 Download 開新分頁到 release 頁。
+
+### Changed
+- `DEVELOPMENT.md`「macOS auto-update」段對齊新行為,從「不能自動安裝」改寫為「完全停用 Tier 2」+ 三處實作位置註解
+- `app/electron/preload.js`:暴露 `platform: process.platform` 給 renderer 識別
+
+### Notes
+- Windows / Linux 不受影響(Tier 2 完整流程)
+- 修這個讓 macOS 也走 Tier 2 的唯一方法仍是付 Apple Developer Program $99/年做 notarization
+
+---
+
 ## [v0.3.0-beta7] — 2026-04-27
 
 ### Fixed
