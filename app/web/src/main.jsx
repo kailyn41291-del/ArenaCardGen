@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client';
 import JSZip from 'jszip';
 import * as pdfjsLib from 'pdfjs-dist';
+import { LocaleContext, getInitialLocale, persistLocale, useT, LangPicker } from './i18n.jsx';
 
 // pdf.js worker — copy 到 web/dist/ 由 build:worker 處理(路徑相對 index.html 的位置)
 pdfjsLib.GlobalWorkerOptions.workerSrc = './dist/pdf.worker.min.mjs';
@@ -853,6 +854,7 @@ Chaser
     // Card component
     // ────────────────────────────────────────────────────────────────
     function Card({ card, idx, isSelected, onClick, transparent, bgColor, useTypeColors, customColor, onDragStart, onDragEnd, onDragOver, onDrop, dropPosition }) {
+      const t = useT();
       // 任何非空 label 都顯示大字 prefix(S## / INTRO / 轉場 / Chaser~ 等)
       const originalLabel = (card.label || '').trim();
       const hasOriginalLabel = originalLabel.length > 0;
@@ -931,7 +933,7 @@ Chaser
           </button>
           <div className="px-1 text-[11px] text-slate-500 mono tracking-wider flex items-center justify-between">
             <span>#{idx + 1}{labelText && ` · ${labelText}`}</span>
-            <span className="text-slate-700">{lines.length} 行 · {Math.round(maxLineWidth)} 寬</span>
+            <span className="text-slate-700">{lines.length} {t('grid.row')} · {Math.round(maxLineWidth)} {t('grid.width')}</span>
           </div>
         </div>
       );
@@ -941,28 +943,29 @@ Chaser
     // Card Edit Panel(slide-in from right)
     // ────────────────────────────────────────────────────────────────
     const TEXT_COLORS = [
-      { name: '白', hex: '#FFFFFF' },
-      { name: '紅', hex: '#FF0000' },
-      { name: '粉', hex: '#FF0080' },
-      { name: '黃', hex: '#FFFF00' },
+      { nameKey: 'color.white', hex: '#FFFFFF' },
+      { nameKey: 'color.red', hex: '#FF0000' },
+      { nameKey: 'color.pink', hex: '#FF0080' },
+      { nameKey: 'color.yellow', hex: '#FFFF00' },
     ];
     // 背景色 preset(全域 bgColor 跟 card.bgOverride 共用)
     // 黑是 default、白配深字、螢光綠是品牌色、螢光粉常用作 LIVE 強調
     const BG_COLORS = [
-      { name: '黑', hex: '#000000' },
-      { name: '白', hex: '#FFFFFF' },
-      { name: '螢光綠', hex: '#00FF66' },
-      { name: '螢光粉', hex: '#FF0080' },
+      { nameKey: 'color.black', hex: '#000000' },
+      { nameKey: 'color.white', hex: '#FFFFFF' },
+      { nameKey: 'color.neonGreen', hex: '#00FF66' },
+      { nameKey: 'color.neonPink', hex: '#FF0080' },
     ];
 
     // S3:抽 BgColorPicker — SettingsModal 跟 DefaultPanel 共用,免重複定義 drift
     function BgColorPicker({ settings, setSettings, showHint }) {
+      const t = useT();
       if (settings.transparent) return null;
       const set = (k, v) => setSettings(s => ({ ...s, [k]: v }));
       const current = (settings.bgColor || '#000000').toLowerCase();
       return (
         <section>
-          <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">背景色(全域)</label>
+          <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">{t('settings.bgColor')}</label>
           <div className="flex items-center gap-2">
             {BG_COLORS.map(c => (
               <button
@@ -974,7 +977,7 @@ Chaser
                     : 'border-slate-700 hover:border-slate-500'
                 }`}
                 style={{ backgroundColor: c.hex }}
-                title={c.name}
+                title={t(c.nameKey)}
               />
             ))}
             <div className="flex-1" />
@@ -987,7 +990,7 @@ Chaser
           </div>
           {showHint && (
             <div className="text-[10px] text-slate-500 mt-2">
-              單張卡片可在「編輯字卡」面板用 bg override 蓋過。
+              {t('settings.bgColorHint')}
             </div>
           )}
         </section>
@@ -995,11 +998,11 @@ Chaser
     }
 
     function CardEditPanel({ card, idx, settings, onUpdate, onDelete, onDuplicate }) {
-      if (!card) return null;
+      const t = useT();
       const isTransparentMode = !!(settings && settings.transparent);
 
-      const safeLabel = String(card.label || '').trim();
-      const safeTitle = String(card.title || '');
+      const safeLabel = String(card?.label || '').trim();
+      const safeTitle = String(card?.title || '');
 
       // 編輯區預填「完整原文」(只剝 parens,不截斷)
       const autoLines = useMemo(() => {
@@ -1092,8 +1095,8 @@ Chaser
       return (
         <div className="h-full flex flex-col">
           <div className="px-5 py-4 border-b border-slate-800/60">
-            <div className="text-[10px] uppercase tracking-widest text-[#33ff85]">編輯字卡 · 單選</div>
-            <div className="text-lg font-semibold mt-0.5">#{idx + 1} · {safeLabel || safeTitle.slice(0, 8) || '(空白)'}</div>
+            <div className="text-[10px] uppercase tracking-widest text-[#33ff85]">{t('cardEdit.title')}</div>
+            <div className="text-lg font-semibold mt-0.5">#{idx + 1} · {safeLabel || safeTitle.slice(0, 8) || '—'}</div>
           </div>
 
             <div className="flex-1 overflow-auto scrollbar-pretty p-5 space-y-5">
@@ -1101,18 +1104,17 @@ Chaser
               <section>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-[11px] uppercase tracking-widest text-slate-500">
-                    字卡內容 <span className="text-slate-600 normal-case tracking-normal">(Enter 換行)</span>
+                    {t('cardEdit.content')} <span className="text-slate-600 normal-case tracking-normal">{t('cardEdit.contentEnter')}</span>
                   </label>
                   {hasLineOverride ? (
                     <button
                       onClick={revertToAuto}
                       className="text-[11px] px-2 py-0.5 rounded bg-[#00ff66]/15 text-[#99ffaa] hover:bg-[#00ff66]/25 transition"
-                      title="清除手動切行,回到自動 layout"
                     >
-                      ↻ 還原自動
+                      {t('cardEdit.revertAuto')}
                     </button>
                   ) : (
-                    <span className="text-[10px] text-emerald-500/70">自動 layout</span>
+                    <span className="text-[10px] text-emerald-500/70">{t('cardEdit.autoLayout')}</span>
                   )}
                 </div>
                 <textarea
@@ -1130,32 +1132,32 @@ Chaser
                 {/* 截斷警示 + 實際渲染預覽 */}
                 {!hasLineOverride && isTruncated && (
                   <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300/90 leading-relaxed">
-                    <div className="font-semibold mb-1">⚠ 自動 layout 截斷規則生效</div>
+                    <div className="font-semibold mb-1">{t('cardEdit.truncatedTitle')}</div>
                     <div className="text-amber-200/70 mb-1.5">
-                      原文 {cleanFullTitle.length} 字 &gt; 8 字 → 卡片只顯示前 8 字。
+                      {t('cardEdit.truncatedHint', { n: cleanFullTitle.length })}
                     </div>
-                    <div className="text-amber-200/60">目前實際顯示:</div>
+                    <div className="text-amber-200/60">{t('cardEdit.truncatedActual')}</div>
                     <div className="mono text-amber-100 font-bold mt-1 pl-2 border-l-2 border-amber-500/40">
                       {renderedLines.map((l, i) => <div key={i}>{l}</div>)}
                     </div>
                     <div className="text-amber-200/60 mt-1.5">
-                      💡 編輯上方文字 = 手動切行,不受 8 字限制(可分多行容納全部內容)。
+                      {t('cardEdit.truncatedTip')}
                     </div>
                   </div>
                 )}
 
                 <div className="text-[10px] text-slate-600 mt-1.5 leading-relaxed">
                   {hasLineOverride
-                    ? '已手動 override。改回跟原文相同 → 自動清除 override。'
-                    : '預設顯示原文。直接打字就會 override 自動 layout。'}
+                    ? t('cardEdit.contentOverridden')
+                    : t('cardEdit.contentPlaceholder')}
                 </div>
               </section>
 
               {/* Type */}
               <section>
-                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">類型</label>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">{t('cardEdit.type')}</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(TYPE_LABEL).filter(([k]) => k !== 'section').map(([k, label]) => (
+                  {Object.entries(TYPE_LABEL).filter(([k]) => k !== 'section').map(([k]) => (
                     <button
                       key={k}
                       onClick={() => setType(k)}
@@ -1165,7 +1167,7 @@ Chaser
                           : 'bg-slate-800/30 border-slate-700/50 hover:border-slate-600/80 text-slate-300'
                       }`}
                     >
-                      {label}
+                      {t('type.' + k)}
                     </button>
                   ))}
                 </div>
@@ -1174,12 +1176,12 @@ Chaser
               {/* Color */}
               <section>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-[11px] uppercase tracking-widest text-slate-500">文字色 override</label>
+                  <label className="text-[11px] uppercase tracking-widest text-slate-500">{t('cardEdit.colorOverride')}</label>
                   <button
                     onClick={() => setUseOverride(!useOverride)}
                     className={`text-xs px-2 py-0.5 rounded ${useOverride ? 'bg-[#00ff66]/20 text-[#99ffaa]' : 'bg-slate-800 text-slate-400'}`}
                   >
-                    {useOverride ? 'override 中' : '依類型自動'}
+                    {useOverride ? t('cardEdit.overrideOn') : t('cardEdit.autoFromType')}
                   </button>
                 </div>
                 <div className={`flex items-center gap-2 ${!useOverride ? 'opacity-40 pointer-events-none' : ''}`}>
@@ -1193,7 +1195,7 @@ Chaser
                           : 'border-slate-700 hover:border-slate-500'
                       }`}
                       style={{ backgroundColor: c.hex }}
-                      title={c.name}
+                      title={t(c.nameKey)}
                     />
                   ))}
                   <div className="flex-1" />
@@ -1216,7 +1218,7 @@ Chaser
               {/* S5:contrast 警告 — 背景跟文字幾乎同色,匯出後字看不見 */}
               {invisible && (
                 <div className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
-                  ⚠ 文字與背景幾乎同色,字卡可能完全看不見。改文字色或背景色。
+                  {t('cardEdit.invisibleWarn')}
                 </div>
               )}
 
@@ -1227,7 +1229,7 @@ Chaser
                   className="flex items-center justify-between w-full text-left group"
                 >
                   <label className="text-[11px] uppercase tracking-widest text-slate-500 group-hover:text-slate-400 cursor-pointer">
-                    背景色 override
+                    {t('cardEdit.bgOverride')}
                     {useBgOverride && (
                       <span className="ml-2 normal-case tracking-normal text-[10px] text-[#33ff85]">
                         · {bgOverrideHex.toUpperCase()}
@@ -1241,16 +1243,16 @@ Chaser
                   <div className="mt-2 space-y-2">
                     {isTransparentMode && useBgOverride && (
                       <div className="rounded-lg border border-[#00ff66]/30 bg-[#00ff66]/5 px-3 py-2 text-[11px] text-[#99ffaa]">
-                        透明模式下,這張卡會用 override 顏色實底匯出(其他沒設 override 的卡仍透明)
+                        {t('cardEdit.transparentBgNote')}
                       </div>
                     )}
                     <div className={`flex items-center justify-between`}>
-                      <span className="text-[10px] text-slate-500">蓋過全域背景色</span>
+                      <span className="text-[10px] text-slate-500">{t('cardEdit.bgOverrideHint')}</span>
                       <button
                         onClick={() => setUseBgOverride(!useBgOverride)}
                         className={`text-xs px-2 py-0.5 rounded ${useBgOverride ? 'bg-[#00ff66]/20 text-[#99ffaa]' : 'bg-slate-800 text-slate-400'}`}
                       >
-                        {useBgOverride ? 'override 中' : '依設定'}
+                        {useBgOverride ? t('cardEdit.overrideOn') : t('cardEdit.overrideOff')}
                       </button>
                     </div>
                     <div className={`flex items-center gap-2 ${!useBgOverride ? 'opacity-40 pointer-events-none' : ''}`}>
@@ -1264,7 +1266,7 @@ Chaser
                               : 'border-slate-700 hover:border-slate-500'
                           }`}
                           style={{ backgroundColor: c.hex }}
-                          title={c.name}
+                          title={t(c.nameKey)}
                         />
                       ))}
                       <div className="flex-1" />
@@ -1293,13 +1295,13 @@ Chaser
               onClick={() => onDelete(idx)}
               className="flex-1 py-2.5 rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/10 text-sm font-medium transition"
             >
-              刪除
+              {t('cardEdit.delete')}
             </button>
             <button
               onClick={() => onDuplicate(idx)}
               className="flex-1 py-2.5 rounded-lg bg-[#00ff66] hover:bg-[#33ff85] text-black text-sm font-semibold transition shadow-lg shadow-[#00ff66]/30"
             >
-              複製
+              {t('cardEdit.duplicate')}
             </button>
           </div>
         </div>
@@ -1310,6 +1312,7 @@ Chaser
     // Bulk Edit Panel(2+ 張選取時)
     // ────────────────────────────────────────────────────────────────
     function BulkEditPanel({ ids, cards, settings, onApply, onClear }) {
+      const t = useT();
       const previewCards = ids.slice(0, 6).map(i => cards[i]).filter(Boolean);
       const moreCount = ids.length - previewCards.length;
       const isTransparentMode = !!(settings && settings.transparent);
@@ -1324,11 +1327,11 @@ Chaser
         <div className="h-full flex flex-col">
           <div className="px-5 py-4 border-b border-slate-800/60 flex items-center justify-between">
             <div>
-              <div className="text-[10px] uppercase tracking-widest text-[#33ff85]">多選編輯</div>
-              <div className="text-lg font-semibold mt-0.5">{ids.length} 張字卡</div>
+              <div className="text-[10px] uppercase tracking-widest text-[#33ff85]">{t('bulk.title')}</div>
+              <div className="text-lg font-semibold mt-0.5">{ids.length} {t('bulk.cardsCount')}</div>
             </div>
             <button onClick={onClear} className="text-xs px-2.5 py-1 rounded text-slate-400 hover:text-white hover:bg-slate-800/50 transition">
-              取消選取
+              {t('bulk.cancelSelection')}
             </button>
           </div>
 
@@ -1361,7 +1364,7 @@ Chaser
             <div className="flex-1 overflow-auto scrollbar-pretty p-5 space-y-5">
               {/* 一次改顏色 */}
               <section>
-                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">套用文字色到全部</label>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">{t('bulk.applyColor')}</label>
                 <div className="grid grid-cols-4 gap-2">
                   {TEXT_COLORS.map(c => (
                     <button
@@ -1370,7 +1373,7 @@ Chaser
                       className="aspect-square rounded-xl border-2 border-slate-700 hover:border-[#00ff66] hover:scale-105 transition flex flex-col items-center justify-center gap-1.5"
                       style={{ backgroundColor: c.hex }}
                     >
-                      <div className="text-xs font-bold mix-blend-difference text-white">{c.name}</div>
+                      <div className="text-xs font-bold mix-blend-difference text-white">{t(c.nameKey)}</div>
                     </button>
                   ))}
                 </div>
@@ -1379,17 +1382,17 @@ Chaser
                     type="color"
                     onChange={e => applyColor(e.target.value)}
                     className="w-12 h-10 rounded cursor-pointer border-2 border-slate-700"
-                    title="自訂"
+                    title={t('app.colorCustom')}
                   />
                   <button onClick={clearColor} className="flex-1 py-2.5 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 text-sm transition">
-                    清除 override(回到自動)
+                    {t('bulk.clearColor')}
                   </button>
                 </div>
               </section>
 
               {/* 一次改背景色 */}
               <section>
-                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">套用背景色到全部</label>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">{t('bulk.applyBg')}</label>
                 <div className="grid grid-cols-4 gap-2">
                   {BG_COLORS.map(c => (
                     <button
@@ -1398,7 +1401,7 @@ Chaser
                       className="aspect-square rounded-xl border-2 border-slate-700 hover:border-[#00ff66] hover:scale-105 transition flex flex-col items-center justify-center gap-1.5"
                       style={{ backgroundColor: c.hex }}
                     >
-                      <div className="text-xs font-bold mix-blend-difference text-white">{c.name}</div>
+                      <div className="text-xs font-bold mix-blend-difference text-white">{t(c.nameKey)}</div>
                     </button>
                   ))}
                 </div>
@@ -1407,25 +1410,25 @@ Chaser
                     type="color"
                     onChange={e => applyBg(e.target.value)}
                     className="w-12 h-10 rounded cursor-pointer border-2 border-slate-700"
-                    title="自訂背景色"
+                    title={t('app.bgCustom')}
                   />
                   <button onClick={clearBg} className="flex-1 py-2.5 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 text-sm transition">
-                    清除背景 override(回到設定)
+                    {t('bulk.clearBg')}
                   </button>
                 </div>
               </section>
 
               {/* 一次改類型 */}
               <section>
-                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">套用類型到全部</label>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">{t('bulk.applyType')}</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(TYPE_LABEL).filter(([k]) => k !== 'section').map(([k, label]) => (
+                  {Object.entries(TYPE_LABEL).filter(([k]) => k !== 'section').map(([k]) => (
                     <button
                       key={k}
                       onClick={() => applyType(k)}
                       className="px-3 py-2.5 rounded-lg text-sm font-medium border border-slate-700/50 bg-slate-800/30 hover:border-[#00ff66]/60 hover:bg-[#00ff66]/10 transition"
                     >
-                      {label}
+                      {t('type.' + k)}
                     </button>
                   ))}
                 </div>
@@ -1433,9 +1436,9 @@ Chaser
             </div>
 
           <div className="pt-2 px-5 pb-5 text-xs text-slate-500 leading-relaxed border-t border-slate-800/40">
-            <div className="font-semibold text-slate-400 mb-1 mt-3">提示</div>
-            點任何顏色或類型即立即套用到 {ids.length} 張選中的卡片。<br/>
-            按 <kbd>Esc</kbd> 取消選取。
+            <div className="font-semibold text-slate-400 mb-1 mt-3">{t('bulk.tipTitle')}</div>
+            {t('bulk.tipBody', { n: ids.length })}<br/>
+            <kbd>Esc</kbd> {t('bulk.escTip')}
           </div>
         </div>
       );
@@ -1445,10 +1448,10 @@ Chaser
     // Settings Modal
     // ────────────────────────────────────────────────────────────────
     function SettingsModal({ open, onClose, settings, setSettings, appVersion, onCheckUpdate }) {
-      if (!open) return null;
-
-      const set = (k, v) => setSettings(s => ({ ...s, [k]: v }));
+      const t = useT();
       const [checkState, setCheckState] = useState(''); // '', 'checking', 'latest', 'newer:vX.Y.Z', 'error'
+      if (!open) return null;
+      const set = (k, v) => setSettings(s => ({ ...s, [k]: v }));
 
       const handleCheck = async () => {
         if (!onCheckUpdate) return;
@@ -1462,7 +1465,7 @@ Chaser
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40" onClick={onClose} />
           <div className="fixed top-0 right-0 bottom-0 w-[420px] bg-[#0c0c10] border-l border-slate-800/80 z-50 flex flex-col shadow-2xl">
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800/60">
-              <h2 className="text-xl font-semibold tracking-tight">設定</h2>
+              <h2 className="text-xl font-semibold tracking-tight">{t('settings.title')}</h2>
               <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
                 <Icon.close className="w-4 h-4 text-slate-400" />
               </button>
@@ -1470,7 +1473,7 @@ Chaser
 
             <div className="flex-1 overflow-auto scrollbar-pretty p-6 space-y-6">
               <section>
-                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">預設文字色</label>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">{t('settings.textColor')}</label>
                 <div className="flex gap-3">
                   {TEXT_COLORS.map(c => (
                     <button
@@ -1482,22 +1485,22 @@ Chaser
                           : 'border-slate-700 hover:border-slate-500'
                       }`}
                       style={{ backgroundColor: c.hex }}
-                      title={c.name}
+                      title={t(c.nameKey)}
                     />
                   ))}
                 </div>
               </section>
 
               <Toggle
-                label="按類型自動配色"
-                desc="歌曲=白、TALKING=黃、轉場=綠、Chaser=紅"
+                label={t('settings.useTypeColors')}
+                desc={t('settings.useTypeColorsDesc')}
                 checked={settings.useTypeColors}
                 onChange={v => set('useTypeColors', v)}
               />
 
               <Toggle
-                label="背景透明 (PNG alpha)"
-                desc="預覽顯示棋盤格"
+                label={t('settings.transparent')}
+                desc={t('settings.transparentDesc')}
                 checked={settings.transparent}
                 onChange={v => set('transparent', v)}
               />
@@ -1505,7 +1508,7 @@ Chaser
               <BgColorPicker settings={settings} setSettings={setSettings} showHint />
 
               <section>
-                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">5 字切法</label>
+                <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">{t('settings.split5')}</label>
                 <div className="flex bg-slate-800/30 border border-slate-700/50 rounded-lg p-1">
                   {['3/2', '2/3'].map(opt => (
                     <button
@@ -1532,13 +1535,12 @@ Chaser
                 onClick={handleCheck}
                 disabled={checkState === 'checking'}
                 className="text-[11px] px-2.5 py-1 rounded bg-slate-800/60 hover:bg-slate-700/60 text-slate-300 transition disabled:opacity-50"
-                title="重新檢查 GitHub 上有沒有新版"
               >
-                {checkState === 'checking' ? '檢查中…' : '檢查更新'}
+                {checkState === 'checking' ? t('settings.checking') : t('settings.checkUpdate')}
               </button>
-              {checkState === 'latest' && <span className="text-[11px] text-emerald-400/80">已是最新</span>}
-              {checkState.startsWith('newer:') && <span className="text-[11px] text-[#33ff85]">{checkState.slice(6)} 可下載</span>}
-              {checkState === 'error' && <span className="text-[11px] text-amber-400/80">檢查失敗</span>}
+              {checkState === 'latest' && <span className="text-[11px] text-emerald-400/80">{t('settings.latest')}</span>}
+              {checkState.startsWith('newer:') && <span className="text-[11px] text-[#33ff85]">{checkState.slice(6)} {t('settings.newer')}</span>}
+              {checkState === 'error' && <span className="text-[11px] text-amber-400/80">{t('settings.checkError')}</span>}
               <span className="text-[11px] text-slate-600 ml-auto">{formatVersion(appVersion)}</span>
             </div>
           </div>
@@ -1567,6 +1569,7 @@ Chaser
     // Rundown Parser Modal
     // ────────────────────────────────────────────────────────────────
     function GeminiKeyRow({ geminiApiKey, setGeminiApiKey, geminiKeyError }) {
+      const t = useT();
       const [draft, setDraft] = useState(geminiApiKey || '');
       useEffect(() => { setDraft(geminiApiKey || ''); }, [geminiApiKey]);
       const dirty = draft !== (geminiApiKey || '');
@@ -1574,29 +1577,28 @@ Chaser
       return (
         <div className="border-t border-slate-800/60 px-6 py-2.5 bg-slate-900/40 text-xs">
           <div className="flex items-center gap-2">
-            <span className="text-slate-500 shrink-0">🧠 Gemini API key</span>
+            <span className="text-slate-500 shrink-0">{t('parser.geminiKey')}</span>
             <input
               type="password"
               value={draft}
               onChange={e => setDraft(e.target.value)}
               onBlur={commit}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); e.target.blur(); } }}
-              placeholder="貼入啟用智慧解析(免費 1500 次/天)"
+              placeholder={t('parser.geminiKeyPlaceholder')}
               className="flex-1 mono px-3 py-1.5 rounded bg-slate-800/60 border border-slate-700 focus:border-[#00ff66]/60 focus:outline-none placeholder-slate-600 text-slate-100"
             />
             {!dirty && draft && !geminiKeyError && (
-              <span className="text-[10px] text-emerald-500/80 shrink-0">✓ 已設定</span>
+              <span className="text-[10px] text-emerald-500/80 shrink-0">{t('parser.geminiKeySaved')}</span>
             )}
             {dirty && (
-              <span className="text-[10px] text-amber-400/80 shrink-0">未儲存(離開欄位或按 Enter)</span>
+              <span className="text-[10px] text-amber-400/80 shrink-0">{t('parser.geminiKeyDirty')}</span>
             )}
             <a
               href="https://aistudio.google.com/apikey"
               onClick={e => { e.preventDefault(); window.open('https://aistudio.google.com/apikey', '_blank'); }}
               className="text-[#33ff85] hover:underline shrink-0"
-              title="免費取得 Gemini API key"
             >
-              取得 key →
+              {t('parser.geminiKeyGet')}
             </a>
           </div>
           {geminiKeyError && (
@@ -1604,15 +1606,16 @@ Chaser
           )}
           {/* 隱私說明 — 公開版本 user 不認識我們,要把資料流明確講出來 */}
           <div className="mt-2 text-[10px] text-slate-500 leading-relaxed">
-            🔒 key 用 OS 內建加密儲存(Windows DPAPI / macOS Keychain),只能在這台電腦解密,不會送任何伺服器。
+            {t('parser.geminiKeyPrivacy1')}
             <br />
-            ⚠ 「智慧解析」會把 RD 內容送 Google Gemini API。NDA 曲目請改用「規則解析」(本地、不送出)。
+            {t('parser.geminiKeyPrivacy2')}
           </div>
         </div>
       );
     }
 
     function ParserModal({ open, onClose, onImport, geminiApiKey, setGeminiApiKey, geminiKeyError }) {
+      const t = useT();
       const [raw, setRaw] = useState('');
       const [result, setResult] = useState('');
       const [lang, setLang] = useState('繁');
@@ -1653,37 +1656,37 @@ Chaser
         const last = history[history.length - 1];
         setRaw(last.raw);
         setResult(last.result);
-        setStatus(last.status ? '↶ 已 undo · 上次:' + last.status : '↶ 已 undo');
+        setStatus(last.status ? t('parser.statusUndonePrefix') + last.status : t('parser.statusUndone'));
         setHistory(h => h.slice(0, -1));
       };
 
       const doParse = () => {
-        if (!raw.trim()) { setStatus('請先貼入文字'); return; }
+        if (!raw.trim()) { setStatus(t('parser.statusEmpty')); return; }
         pushSnapshot();
         const out = parseRdMessy(raw);
         setResult(out);
         const count = out.split('\n').filter(Boolean).length;
-        setStatus(count ? `✓ 規則 parser 找到 ${count} 個項目` : '規則 parser 找不到');
+        setStatus(count ? t('parser.statusRuleFound', { n: count }) : t('parser.statusRuleNone'));
       };
 
       // ────── PDF 上傳:抽文字到 raw textarea ──────
       const handlePdfFile = async (file) => {
         if (!file) return;
         if (!file.name.toLowerCase().endsWith('.pdf')) {
-          setStatus('❌ 只支援 PDF 檔案');
+          setStatus(t('parser.statusOnlyPdf'));
           return;
         }
         if (!window.pdfjsLib) {
-          setStatus('❌ PDF.js 未載入(網路問題?)');
+          setStatus(t('parser.statusPdfNotLoaded'));
           return;
         }
-        setStatus(`📄 解析 PDF (${(file.size / 1024).toFixed(1)} KB)…`);
+        setStatus(t('parser.statusPdfLoading', { kb: (file.size / 1024).toFixed(1) }));
         try {
           const buf = await file.arrayBuffer();
           const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
           const pages = [];
           for (let i = 1; i <= pdf.numPages; i++) {
-            setStatus(`📄 解析 PDF 第 ${i}/${pdf.numPages} 頁…`);
+            setStatus(t('parser.statusPdfPage', { i, total: pdf.numPages }));
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();
             // 用 item 的 y 座標(transform[5])還原行結構 — 同 y 同行 join 空格,
@@ -1708,14 +1711,14 @@ Chaser
           }
           const text = pages.join('\n\n').trim();
           if (!text) {
-            setStatus('❌ PDF 抽不到文字 — 可能是純圖片掃描檔(暫不支援 OCR)');
+            setStatus(t('parser.statusPdfNoText'));
             return;
           }
           pushSnapshot();
           setRaw(text);
-          setStatus(`✓ 從 ${pdf.numPages} 頁抽出 ${text.length} 字 — 按「🧠 智慧解析」繼續`);
+          setStatus(t('parser.statusPdfFromN', { pages: pdf.numPages, chars: text.length }));
         } catch (e) {
-          setStatus('❌ PDF 解析失敗:' + e.message);
+          setStatus(t('parser.statusPdfFail', { err: e.message }));
         }
       };
 
@@ -1734,22 +1737,22 @@ Chaser
       };
 
       const doSmartParse = async () => {
-        if (!raw.trim()) { setStatus('請先貼入文字'); return; }
+        if (!raw.trim()) { setStatus(t('parser.statusEmpty')); return; }
         if (!geminiApiKey) {
-          setStatus('請先在下方填入 Gemini API key');
+          setStatus(t('parser.statusNoKey'));
           return;
         }
         pushSnapshot();
         setSmartLoading(true);
-        setStatus('🧠 Gemini 解析中…');
+        setStatus(t('parser.statusSmartLoading'));
         try {
           const r = await parseWithGemini(raw, geminiApiKey);
           setResult(r.text);
           const count = r.text.split('\n').filter(Boolean).length;
-          const truncWarn = r.finishReason === 'MAX_TOKENS' ? ' ⚠ 結果可能被截斷,請告訴我' : '';
-          setStatus(`✓ ${r.model} 找到 ${count} 個項目${truncWarn}`);
+          const truncWarn = r.finishReason === 'MAX_TOKENS' ? t('parser.statusTruncated') : '';
+          setStatus(t('parser.statusSmartFound', { model: r.model, n: count }) + truncWarn);
         } catch (e) {
-          setStatus('❌ ' + (e.message || '未知錯誤'));
+          setStatus('❌ ' + (e.message || t('parser.statusUnknown')));
         } finally {
           setSmartLoading(false);
         }
@@ -1762,8 +1765,8 @@ Chaser
             <div className="bg-[#0c0c10] border border-slate-800/80 rounded-2xl w-full max-w-5xl h-[80vh] flex flex-col shadow-2xl overflow-hidden">
               <div className="flex items-center justify-between px-6 py-5 border-b border-slate-800/60">
                 <div>
-                  <h2 className="text-xl font-semibold tracking-tight">Rundown 排序辨識器</h2>
-                  <p className="text-xs text-slate-500 mt-1">貼入任意格式 RD → 自動辨識 → 匯入主視窗</p>
+                  <h2 className="text-xl font-semibold tracking-tight">{t('parser.title')}</h2>
+                  <p className="text-xs text-slate-500 mt-1">{t('parser.subtitle')}</p>
                 </div>
                 <button onClick={onClose} className="w-9 h-9 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
                   <Icon.close className="w-4 h-4 text-slate-400" />
@@ -1778,25 +1781,24 @@ Chaser
                   onDrop={(e) => { e.currentTarget.classList.remove('ring-2','ring-[#00ff66]/60'); onRawDrop(e); }}
                 >
                   <div className="px-4 py-2.5 text-[11px] uppercase tracking-widest text-slate-500 border-b border-slate-800/50 flex items-center justify-between">
-                    <span>原始 RD</span>
+                    <span>{t('parser.rawLabel')}</span>
                     <button
                       onClick={onPdfButtonClick}
                       className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[#33ff85] normal-case tracking-normal text-xs font-semibold flex items-center gap-1"
-                      title="從 PDF 自動抽出文字"
                     >
-                      📄 上傳 PDF
+                      {t('parser.pdfBtn')}
                     </button>
                   </div>
                   <textarea
                     value={raw}
                     onChange={e => setRaw(e.target.value)}
-                    placeholder={`貼入任意格式 RD 文字\n或點上方「📄 上傳 PDF」/ 拖 PDF 檔到這裡\n\n例:\n01. Opening — 02'00\n02. S01: 皮卡丘 (cover) — 03'45\n...`}
+                    placeholder={t('parser.pdfPlaceholder')}
                     className="flex-1 mono text-sm p-4 bg-transparent resize-none focus:outline-none text-slate-200 placeholder-slate-600"
                     spellCheck="false"
                   />
                 </div>
                 <div className="flex flex-col bg-emerald-950/20 rounded-xl border border-emerald-900/40 overflow-hidden">
-                  <div className="px-4 py-2.5 text-[11px] uppercase tracking-widest text-emerald-500/80 border-b border-emerald-900/40">辨識結果</div>
+                  <div className="px-4 py-2.5 text-[11px] uppercase tracking-widest text-emerald-500/80 border-b border-emerald-900/40">{t('parser.resultLabel')}</div>
                   <textarea
                     value={result}
                     onChange={e => setResult(e.target.value)}
@@ -1811,9 +1813,8 @@ Chaser
                   onClick={doParse}
                   disabled={smartLoading}
                   className="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium transition flex items-center gap-2 disabled:opacity-50"
-                  title="規則 parser:免費、即時,但複雜格式可能漏抓"
                 >
-                  ⚡ 規則辨識
+                  {t('parser.btnRule')}
                 </button>
                 <button
                   onClick={doSmartParse}
@@ -1823,9 +1824,9 @@ Chaser
                       ? 'bg-[#00ff66] hover:bg-[#33ff85] text-black shadow-[#00ff66]/30'
                       : 'bg-slate-800 text-slate-500 cursor-pointer hover:bg-slate-700'
                   } disabled:opacity-50`}
-                  title={geminiApiKey ? 'Gemini 2.0 Flash 智慧解析(免費 1500 次/天)' : '請先填 API key'}
+                  title={geminiApiKey ? t('parser.smartTitle') : t('parser.smartTitleNoKey')}
                 >
-                  {smartLoading ? '⏳ 解析中…' : geminiApiKey ? '🧠 智慧解析 (Gemini)' : '🧠 智慧解析(需 API key)'}
+                  {smartLoading ? t('parser.btnSmartLoading') : geminiApiKey ? t('parser.btnSmart') : t('parser.btnSmartNoKey')}
                 </button>
                 <div className="flex bg-slate-800/40 border border-slate-700/50 rounded-lg p-0.5">
                   {['繁', '簡'].map(L => (
@@ -1851,9 +1852,9 @@ Chaser
                       ? 'text-slate-300 hover:text-white hover:bg-slate-800/50 border border-slate-700'
                       : 'text-slate-600 border border-slate-800 cursor-not-allowed'
                   }`}
-                  title={`Undo(${history.length} 步可還原)· Ctrl+Z`}
+                  title={t('parser.undoTitle', { n: history.length })}
                 >
-                  ↶ Undo {history.length > 0 && <span className="text-xs opacity-60">({history.length})</span>}
+                  {t('parser.btnUndo')} {history.length > 0 && <span className="text-xs opacity-60">({history.length})</span>}
                 </button>
                 <div className="flex-1" />
                 <button
@@ -1863,7 +1864,7 @@ Chaser
                   }}
                   className="px-4 py-2.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/50 text-sm transition"
                 >
-                  清除
+                  {t('parser.btnClear')}
                 </button>
                 <button
                   onClick={() => { if (result) { onImport(result); onClose(); } }}
@@ -1874,7 +1875,7 @@ Chaser
                       : 'bg-slate-800/40 text-slate-600 cursor-not-allowed'
                   }`}
                 >
-                  匯入主視窗
+                  {t('parser.btnImport')}
                   <Icon.arrowRight className="w-4 h-4" />
                 </button>
               </div>
@@ -1896,7 +1897,7 @@ Chaser
     // Pre-Export Checklist
     // ────────────────────────────────────────────────────────────────
     function ExportChecklist({ open, cards, selectedIds, settings, fontsReady, onClose, onConfirm }) {
-      if (!open) return null;
+      const t = useT();
       const hasSelection = selectedIds && selectedIds.size > 0;
       // scope:default 'all'(主流操作是匯出全部);user 想 narrow 才主動切「只選中」
       const [scope, setScope] = useState('all');
@@ -1908,6 +1909,8 @@ Chaser
         [selectedIds, hasSelection]
       );
 
+      if (!open) return null;
+
       const { exportCards, originalIndices } = scope === 'selected' && hasSelection
         ? {
             exportCards: selectedIdxArr.map(i => cards[i]).filter(Boolean),
@@ -1917,20 +1920,20 @@ Chaser
 
       const empties = exportCards.filter(c => !c.title).length;
       const truncated = exportCards.filter(c => {
-        const t = (c.title || '').replace(/[((][^))]*[))]/g, '').trim();
-        const isCJK = /[一-鿿]/.test(t);
-        return (isCJK && t.length > 8) || (!isCJK && t.length > 18);
+        const cleanTitle = (c.title || '').replace(/[((][^))]*[))]/g, '').trim();
+        const isCJK = /[一-鿿]/.test(cleanTitle);
+        return (isCJK && cleanTitle.length > 8) || (!isCJK && cleanTitle.length > 18);
       }).length;
       const dupes = exportCards.length - new Set(exportCards.map(c => `${c.label}_${c.title}`)).size;
       // B4:文字跟背景幾乎同色 → 字卡看不見
       const invisible = exportCards.filter(c => isCardInvisible(c, settings)).length;
 
       const checks = [
-        { ok: !!fontsReady,         label: '字型載入', detail: fontsReady ? 'Inter + 中文字型 OK' : '載入中…' },
-        { ok: empties === 0,        label: '空字卡',   detail: empties === 0 ? '無' : `${empties} 張` },
-        { ok: dupes === 0,          label: '檔名重複', detail: dupes === 0 ? '0' : `${dupes} 組(會合併)` },
-        { ok: truncated === 0,      label: '標題截斷', detail: truncated === 0 ? '無' : `${truncated} 張會被截斷至 8 字` },
-        { ok: invisible === 0,      label: '文字可見性', detail: invisible === 0 ? '對比 OK' : `${invisible} 張背景與文字幾乎同色,可能完全看不見` },
+        { ok: !!fontsReady,         label: t('checklist.checkFonts'),     detail: fontsReady ? t('checklist.checkFontsOk') : t('checklist.checkFontsLoading') },
+        { ok: empties === 0,        label: t('checklist.checkEmpty'),     detail: empties === 0 ? t('checklist.checkNone') : `${empties}` },
+        { ok: dupes === 0,          label: t('checklist.checkDupes'),     detail: dupes === 0 ? '0' : `${dupes} ${t('checklist.checkDupesGroups')}` },
+        { ok: truncated === 0,      label: t('checklist.checkTruncated'), detail: truncated === 0 ? t('checklist.checkNone') : `${truncated} ${t('checklist.checkTruncatedSuffix')}` },
+        { ok: invisible === 0,      label: t('checklist.checkInvisible'), detail: invisible === 0 ? t('checklist.checkInvisibleOk') : `${invisible} ${t('checklist.checkInvisibleSuffix')}` },
       ];
       const allOk = checks.every(c => c.ok);
       const canExport = fontsReady && exportCards.length > 0;
@@ -1941,7 +1944,7 @@ Chaser
           <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
             <div className="bg-[#0c0c10] border border-slate-800/80 rounded-2xl w-full max-w-md shadow-2xl">
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800/60">
-                <h2 className="text-lg font-semibold">匯出前檢查</h2>
+                <h2 className="text-lg font-semibold">{t('checklist.title')}</h2>
                 <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
                   <Icon.close className="w-4 h-4 text-slate-400" />
                 </button>
@@ -1950,8 +1953,8 @@ Chaser
                 {/* 範圍選擇:全部 vs 只選中(只有 hasSelection 時才顯示)*/}
                 {hasSelection && (
                   <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-3 space-y-2">
-                    <div className="text-[11px] uppercase tracking-widest text-slate-500">匯出範圍</div>
-                    <div role="radiogroup" aria-label="匯出範圍" className="grid grid-cols-2 gap-2">
+                    <div className="text-[11px] uppercase tracking-widest text-slate-500">{t('checklist.scope')}</div>
+                    <div role="radiogroup" aria-label={t('checklist.scope')} className="grid grid-cols-2 gap-2">
                       <button
                         role="radio"
                         aria-checked={scope === 'all'}
@@ -1961,7 +1964,7 @@ Chaser
                             ? 'bg-[#00ff66] text-black'
                             : 'bg-slate-800/60 text-slate-300 hover:bg-slate-700/60'
                         }`}
-                      >全部 ({cards.length})</button>
+                      >{t('checklist.all')} ({cards.length})</button>
                       <button
                         role="radio"
                         aria-checked={scope === 'selected'}
@@ -1971,7 +1974,7 @@ Chaser
                             ? 'bg-[#00ff66] text-black'
                             : 'bg-slate-800/60 text-slate-300 hover:bg-slate-700/60'
                         }`}
-                      >只選中 ({selectedIds.size})</button>
+                      >{t('checklist.selected')} ({selectedIds.size})</button>
                     </div>
                   </div>
                 )}
@@ -1999,7 +2002,7 @@ Chaser
                       : 'bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/30'
                   }`}
                 >
-                  {!canExport ? (fontsReady ? '無卡可匯出' : '字型載入中…') : allOk ? `匯出 ${exportCards.length} 張 PNG (zip)` : `仍要匯出 ${exportCards.length} 張(有警告)`}
+                  {!canExport ? (fontsReady ? t('checklist.btnEmpty') : t('checklist.btnLoading')) : allOk ? t('checklist.btnExport', { n: exportCards.length }) : t('checklist.btnExportWarn', { n: exportCards.length })}
                 </button>
               </div>
             </div>
@@ -2012,6 +2015,7 @@ Chaser
     // Export Progress(canvas → png → zip)
     // ────────────────────────────────────────────────────────────────
     function ExportProgress({ state, onClose }) {
+      const t = useT();
       if (!state) return null;
       const pct = state.total > 0 ? Math.round((state.current / state.total) * 100) : 0;
       const errors = (state.errors || []);
@@ -2024,8 +2028,8 @@ Chaser
               <div className="px-6 py-5 border-b border-slate-800/60 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">
                   {state.complete
-                    ? (hasErrors ? `⚠ 匯出完成(${errors.length} 張失敗)` : '✓ 匯出完成')
-                    : '匯出中'}
+                    ? (hasErrors ? t('export.titleDoneErrors', { n: errors.length }) : t('export.titleDone'))
+                    : t('export.titleRunning')}
                 </h2>
                 {state.complete && (
                   <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-slate-800/50 flex items-center justify-center transition">
@@ -2036,8 +2040,8 @@ Chaser
               <div className="p-6 space-y-4">
                 <div className="text-sm text-slate-300">
                   {state.complete
-                    ? `已產出 ZIP(${state.total - errors.length} / ${state.total} 張字卡)— 應該已自動下載`
-                    : `正在渲染 ${state.current} / ${state.total}…`}
+                    ? t('export.bodyDone', { done: state.total - errors.length, total: state.total })
+                    : t('export.bodyRunning', { current: state.current, total: state.total })}
                 </div>
                 <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                   <div
@@ -2050,7 +2054,7 @@ Chaser
                 )}
                 {state.complete && hasErrors && (
                   <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 max-h-48 overflow-auto">
-                    <div className="text-amber-300 text-xs font-semibold mb-2">這些字卡渲染失敗,沒進 ZIP:</div>
+                    <div className="text-amber-300 text-xs font-semibold mb-2">{t('export.errorsTitle')}</div>
                     <ul className="space-y-1 text-[11px] text-amber-200/90 mono">
                       {errors.map((e, i) => (
                         <li key={i}>#{e.idx} {e.name} — {e.error}</li>
@@ -2067,7 +2071,7 @@ Chaser
                         : 'bg-[#00ff66] hover:bg-[#33ff85] text-black shadow-[#00ff66]/30'
                     }`}
                   >
-                    {hasErrors ? '我了解,關閉' : '完成'}
+                    {hasErrors ? t('export.btnDoneErrors') : t('export.btnDone')}
                   </button>
                 )}
               </div>
@@ -2081,14 +2085,15 @@ Chaser
     // Update Toast
     // ────────────────────────────────────────────────────────────────
     function UpdateToast({ visible, version, onDismiss, onDownload }) {
+      const t = useT();
       if (!visible) return null;
       return (
         <div className="fixed bottom-12 right-6 z-30 px-4 py-3 rounded-xl bg-[#0c0c10] border border-[#00ff66]/60 glow-pink-soft flex items-center gap-3 animate-in">
-          <div className="text-sm">{formatVersion(version)} available</div>
+          <div className="text-sm">{formatVersion(version)} {t('update.available')}</div>
           <button onClick={onDownload} className="text-[#33ff85] hover:text-[#99ffaa] text-sm font-medium">
-            Download
+            {t('update.btnDownload')}
           </button>
-          <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1" aria-label="dismiss">
+          <button onClick={onDismiss} className="text-slate-500 hover:text-white p-1" aria-label={t('update.btnDismiss')}>
             <Icon.close className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -2099,16 +2104,17 @@ Chaser
     // Default Panel(沒選任何卡時顯示在右欄)
     // ────────────────────────────────────────────────────────────────
     function DefaultPanel({ settings, setSettings, cardsCount }) {
+      const t = useT();
       const set = (k, v) => setSettings(s => ({ ...s, [k]: v }));
       return (
         <div className="h-full flex flex-col">
           <div className="px-5 py-4 border-b border-slate-800/60">
-            <div className="text-[10px] uppercase tracking-widest text-slate-500">預設設定</div>
-            <div className="text-lg font-semibold mt-0.5">字卡屬性</div>
+            <div className="text-[10px] uppercase tracking-widest text-slate-500">{t('default.title')}</div>
+            <div className="text-lg font-semibold mt-0.5">{t('default.subtitle')}</div>
           </div>
           <div className="flex-1 overflow-auto scrollbar-pretty p-5 space-y-5">
             <section>
-              <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">預設文字色</label>
+              <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-3 block">{t('settings.textColor')}</label>
               <div className="flex gap-2">
                 {TEXT_COLORS.map(c => (
                   <button
@@ -2120,26 +2126,26 @@ Chaser
                         : 'border-slate-700 hover:border-slate-500'
                     }`}
                     style={{ backgroundColor: c.hex }}
-                    title={c.name}
+                    title={t(c.nameKey)}
                   />
                 ))}
               </div>
             </section>
 
-            <Toggle label="按類型自動配色"
-              desc="歌曲=白、TALKING=黃、轉場=綠、Chaser=紅"
+            <Toggle label={t('settings.useTypeColors')}
+              desc={t('settings.useTypeColorsDesc')}
               checked={settings.useTypeColors}
               onChange={v => set('useTypeColors', v)} />
 
-            <Toggle label="背景透明 (PNG alpha)"
-              desc="預覽顯示棋盤格"
+            <Toggle label={t('settings.transparent')}
+              desc={t('settings.transparentDesc')}
               checked={settings.transparent}
               onChange={v => set('transparent', v)} />
 
             <BgColorPicker settings={settings} setSettings={setSettings} showHint={false} />
 
             <section>
-              <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">5 字標題切法</label>
+              <label className="text-[11px] uppercase tracking-widest text-slate-500 mb-2 block">{t('settings.split5')}</label>
               <div className="flex bg-slate-800/30 border border-slate-700/50 rounded-lg p-1">
                 {['3/2', '2/3'].map(opt => (
                   <button key={opt} onClick={() => set('split5', opt)}
@@ -2153,12 +2159,12 @@ Chaser
             </section>
 
             <div className="pt-3 border-t border-slate-800/40 text-xs text-slate-500 leading-relaxed">
-              <div className="font-semibold text-slate-400 mb-2">提示</div>
-              <p className="mb-1.5">點任何卡片 → 編輯個別屬性</p>
-              <p className="mb-1.5"><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+點 → 多選</p>
-              <p className="mb-1.5"><kbd>Shift</kbd>+點 → 範圍選取</p>
-              <p className="mb-1.5"><kbd>Ctrl+A</kbd> → 全選 ({cardsCount} 張)</p>
-              <p><kbd>Ctrl+Enter</kbd> → 匯出</p>
+              <div className="font-semibold text-slate-400 mb-2">{t('default.tipTitle')}</div>
+              <p className="mb-1.5">{t('default.tip1')}</p>
+              <p className="mb-1.5"><kbd>Ctrl</kbd>/<kbd>⌘</kbd>{t('default.tip2')}</p>
+              <p className="mb-1.5"><kbd>Shift</kbd>{t('default.tip3')}</p>
+              <p className="mb-1.5"><kbd>Ctrl+A</kbd> {t('default.tip4Prefix')} ({cardsCount})</p>
+              <p><kbd>Ctrl+Enter</kbd> → {t('footer.export')}</p>
             </div>
           </div>
         </div>
@@ -2177,7 +2183,8 @@ S03 皮卡丘進化
 Chaser~阿明
 感謝名單`;
 
-    function App() {
+    function App({ locale, setLocale }) {
+      const t = useT();
       // 從 localStorage 還原(只跑一次,當作 useState initializer)
       const initial = useMemo(() => loadPersistedState() || {}, []);
 
@@ -2188,7 +2195,9 @@ Chaser~阿明
       const [showParser, setShowParser] = useState(false);
       const [showChecklist, setShowChecklist] = useState(false);
       const [overrides, setOverrides] = useState(initial.overrides || {});
-      const [savedAt, setSavedAt] = useState(initial.text ? '已恢復上次工作' : '');
+      const [savedAt, setSavedAt] = useState('');
+      // 還原上次工作的提示 — 用 effect 在 mount 後 set,讓 t() 能拿到 locale
+      useEffect(() => { if (initial.text) setSavedAt(t('footer.statusRestored')); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
       const [fontsReady, setFontsReady] = useState(false);
       const [exportState, setExportState] = useState(null);
       const [gridCols, setGridCols] = useState(initial.gridCols || 5);
@@ -2441,7 +2450,7 @@ Chaser~阿明
         if (a > 99) a = 99;
         if (b > 99) b = 99;
         if (a > b) [a, b] = [b, a];
-        if (b - a > 99) { alert('範圍太大(>99),請分批'); return; }
+        if (b - a > 99) { alert(t('app.tplRangeTooBig')); return; }
         const lines = [];
         for (let n = a; n <= b; n++) lines.push(`S${String(n).padStart(2, '0')} `);
         appendLines(lines);
@@ -2490,12 +2499,12 @@ Chaser~阿明
 
       // Auto-save (debounced 400ms)
       useEffect(() => {
-        const t = setTimeout(() => {
+        const tid = setTimeout(() => {
           const ok = savePersistedState({ text, overrides, cardIds, settings, gridCols, leftWidth, rightWidth });
-          if (ok) setSavedAt(new Date().toLocaleTimeString('zh-TW', { hour12: false }));
+          if (ok) setSavedAt(new Date().toLocaleTimeString(locale, { hour12: false }));
         }, 400);
-        return () => clearTimeout(t);
-      }, [text, overrides, settings, gridCols, leftWidth, rightWidth]);
+        return () => clearTimeout(tid);
+      }, [text, overrides, settings, gridCols, leftWidth, rightWidth, locale]);
 
       // History snapshot (debounced 600ms,只在 text 或 overrides 改變時 push)
       useEffect(() => {
@@ -2504,7 +2513,7 @@ Chaser~阿明
           skipNextHistoryRef.current = false;
           return;
         }
-        const t = setTimeout(() => {
+        const tid = setTimeout(() => {
           const last = historyRef.current[historyIdxRef.current];
           if (last && last.text === text
               && JSON.stringify(last.overrides) === JSON.stringify(overrides)
@@ -2517,7 +2526,7 @@ Chaser~阿明
           if (historyRef.current.length > 50) historyRef.current.shift();
           historyIdxRef.current = historyRef.current.length - 1;
         }, 600);
-        return () => clearTimeout(t);
+        return () => clearTimeout(tid);
       }, [text, overrides, cardIds]);
 
       const undo = () => {
@@ -2536,7 +2545,7 @@ Chaser~阿明
           setOverrides(snap.overrides || {});
         }
         setText(snap.text);
-        setSavedAt('已 undo');
+        setSavedAt(t('footer.statusUndone'));
       };
       const redo = () => {
         if (historyIdxRef.current >= historyRef.current.length - 1) return;
@@ -2552,7 +2561,7 @@ Chaser~阿明
           setOverrides(snap.overrides || {});
         }
         setText(snap.text);
-        setSavedAt('已 redo');
+        setSavedAt(t('footer.statusRedone'));
       };
 
       const toggleFilterType = (t) => {
@@ -2783,20 +2792,21 @@ Chaser~阿明
           <header className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800/40 bg-[#08080a]">
             <div className="flex items-center gap-3">
               <Icon.logo className="w-9 h-9" />
-              <h1 className="text-[19px] font-bold tracking-tight">Arena Card Generator</h1>
+              <h1 className="text-[19px] font-bold tracking-tight">{t('app.title')}</h1>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowParser(true)}
                 className="px-3.5 py-2 rounded-lg bg-slate-900/50 hover:bg-slate-800/70 border border-slate-800/60 text-[13px] flex items-center gap-2 transition"
               >
-                <Icon.file className="w-3.5 h-3.5" /> Rundown Parser
+                <Icon.file className="w-3.5 h-3.5" /> {t('header.parser')}
               </button>
+              <LangPicker locale={locale} onChange={setLocale} />
               <button
                 onClick={() => setShowSettings(true)}
                 className="px-3.5 py-2 rounded-lg bg-slate-900/50 hover:bg-slate-800/70 border border-slate-800/60 text-[13px] flex items-center gap-2 transition"
               >
-                <Icon.settings className="w-3.5 h-3.5" /> Settings
+                <Icon.settings className="w-3.5 h-3.5" /> {t('header.settings')}
               </button>
               <button
                 disabled={cards.length === 0}
@@ -2807,7 +2817,7 @@ Chaser~阿明
                     : 'bg-[#00ff66]/20 text-[#66ff99]/40 cursor-not-allowed'
                 }`}
               >
-                <Icon.upload className="w-3.5 h-3.5" /> Export All
+                <Icon.upload className="w-3.5 h-3.5" /> {t('header.export')}
               </button>
             </div>
           </header>
@@ -2817,7 +2827,7 @@ Chaser~阿明
             {/* Setlist input */}
             <div className="flex flex-col bg-[#0a0a0c] rounded-xl border border-slate-800/40 overflow-hidden relative" style={{ width: `${leftWidth}px`, flexShrink: 0 }}>
               <div className="px-4 py-2.5 border-b border-slate-800/40 text-[10px] font-bold tracking-[0.18em] text-slate-500 uppercase flex items-center justify-between">
-                <span>Setlist Input</span>
+                <span>{t('input.label')}</span>
                 {!text && (
                   <button
                     onClick={() => {
@@ -2826,17 +2836,17 @@ Chaser~阿明
                     }}
                     className="text-[#33ff85] hover:text-[#99ffaa] normal-case tracking-normal text-xs font-normal"
                   >
-                    試試範例 →
+                    {t('input.tplSample')} →
                   </button>
                 )}
               </div>
 
               {/* Quick template panel */}
               <div className="border-b border-slate-800/40 px-3 py-2.5 bg-slate-900/40">
-                <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-2 font-bold">快速產生(append)</div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-2 font-bold">{t('input.tplTitle')}</div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[#33ff85] font-bold text-xs w-12">SONG</span>
+                    <span className="text-[#33ff85] font-bold text-xs w-12">{t('input.tplSong')}</span>
                     <span className="text-slate-500 text-xs">S</span>
                     <input type="number" min="1" max="99" value={tplSFrom} onChange={e => setTplSFrom(parseInt(e.target.value) || 1)}
                       className="w-12 px-1.5 py-1 mono text-xs text-center bg-slate-800/60 border border-slate-700 rounded focus:border-[#00ff66] focus:outline-none" />
@@ -2844,31 +2854,31 @@ Chaser~阿明
                     <input type="number" min="1" max="99" value={tplSTo} onChange={e => setTplSTo(parseInt(e.target.value) || 1)}
                       className="w-12 px-1.5 py-1 mono text-xs text-center bg-slate-800/60 border border-slate-700 rounded focus:border-[#00ff66] focus:outline-none" />
                     <button onClick={tplAddSongs}
-                      className="ml-auto px-2.5 py-1 text-xs font-bold bg-[#00ff66] hover:bg-[#33ff85] text-black rounded transition">+加入</button>
+                      className="ml-auto px-2.5 py-1 text-xs font-bold bg-[#00ff66] hover:bg-[#33ff85] text-black rounded transition">{t('input.tplAdd')}</button>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-xs w-12" style={{ color: '#ffeb3b' }}>TALK</span>
-                    <span className="text-slate-500 text-xs">共</span>
+                    <span className="font-bold text-xs w-12" style={{ color: '#ffeb3b' }}>{t('input.tplTalking')}</span>
+                    <span className="text-slate-500 text-xs">{t('input.tplCount')}</span>
                     <input type="number" min="1" max="50" value={tplTk} onChange={e => setTplTk(parseInt(e.target.value) || 1)}
                       className="w-12 px-1.5 py-1 mono text-xs text-center bg-slate-800/60 border border-slate-700 rounded focus:border-[#00ff66] focus:outline-none" />
                     <button onClick={tplAddTalking}
-                      className="ml-auto px-2.5 py-1 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition">+加入</button>
+                      className="ml-auto px-2.5 py-1 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition">{t('input.tplAdd')}</button>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-xs w-12" style={{ color: '#ff80ab' }}>轉場</span>
-                    <span className="text-slate-500 text-xs">共</span>
+                    <span className="font-bold text-xs w-12" style={{ color: '#ff80ab' }}>{t('input.tplTransition')}</span>
+                    <span className="text-slate-500 text-xs">{t('input.tplCount')}</span>
                     <input type="number" min="1" max="50" value={tplTr} onChange={e => setTplTr(parseInt(e.target.value) || 1)}
                       className="w-12 px-1.5 py-1 mono text-xs text-center bg-slate-800/60 border border-slate-700 rounded focus:border-[#00ff66] focus:outline-none" />
                     <button onClick={tplAddTransition}
-                      className="ml-auto px-2.5 py-1 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition">+加入</button>
+                      className="ml-auto px-2.5 py-1 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition">{t('input.tplAdd')}</button>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-xs w-12" style={{ color: '#ff5252' }}>Chaser</span>
-                    <span className="text-slate-500 text-xs">共</span>
+                    <span className="font-bold text-xs w-12" style={{ color: '#ff5252' }}>{t('input.tplChaser')}</span>
+                    <span className="text-slate-500 text-xs">{t('input.tplCount')}</span>
                     <input type="number" min="1" max="50" value={tplCh} onChange={e => setTplCh(parseInt(e.target.value) || 1)}
                       className="w-12 px-1.5 py-1 mono text-xs text-center bg-slate-800/60 border border-slate-700 rounded focus:border-[#00ff66] focus:outline-none" />
                     <button onClick={tplAddChaser}
-                      className="ml-auto px-2.5 py-1 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition">+加入</button>
+                      className="ml-auto px-2.5 py-1 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition">{t('input.tplAdd')}</button>
                   </div>
                 </div>
               </div>
@@ -2882,7 +2892,7 @@ Chaser~阿明
                 <textarea
                   value={text}
                   onChange={e => updateText(e.target.value)}
-                  placeholder="Paste your setlist here..."
+                  placeholder={t('input.placeholder')}
                   wrap="off"
                   className="w-full h-full editor-area mono text-[13px] text-slate-200 placeholder-slate-600 bg-transparent resize-none focus:outline-none scrollbar-pretty"
                   spellCheck="false"
@@ -2891,22 +2901,22 @@ Chaser~阿明
             </div>
 
             {/* Divider:左 ⇄ 中 */}
-            <div className="col-divider" onMouseDown={startColResize('left')} title="拖曳調整左欄寬度" />
+            <div className="col-divider" onMouseDown={startColResize('left')} title={t('app.dragLeft')} />
 
             {/* Card grid */}
             <div className="flex flex-col bg-[#0a0a0c] rounded-xl border border-slate-800/40 overflow-hidden flex-1 min-w-0">
               <div className="px-4 py-2.5 border-b border-slate-800/40 flex items-center justify-between gap-3 text-[10px] font-bold tracking-[0.18em] text-slate-500 uppercase">
-                <span>Live Card Previews</span>
+                <span>{t('grid.title')}</span>
                 <div className="flex items-center gap-3 flex-1 justify-end">
                   {selectedIds.size > 0 ? (
                     <div className="flex items-center gap-2 normal-case tracking-normal">
-                      <span className="text-[#33ff85] font-semibold">已選 {selectedIds.size}</span>
-                      <button onClick={selectAll} className="text-slate-400 hover:text-white px-2">全選</button>
-                      <button onClick={clearSelection} className="text-slate-400 hover:text-white px-2">取消</button>
+                      <span className="text-[#33ff85] font-semibold">{t('grid.selected')} {selectedIds.size}</span>
+                      <button onClick={selectAll} className="text-slate-400 hover:text-white px-2">{t('grid.selectAll')}</button>
+                      <button onClick={clearSelection} className="text-slate-400 hover:text-white px-2">{t('grid.deselect')}</button>
                     </div>
                   ) : cards.length > 0 && (
                     <span className="text-slate-600 normal-case tracking-normal hidden xl:inline">
-                      點 · <kbd>Ctrl</kbd>+點 · <kbd>Shift</kbd>+點
+                      {t('grid.click')} · <kbd>Ctrl</kbd>+{t('grid.click')} · <kbd>Shift</kbd>+{t('grid.click')}
                     </span>
                   )}
                   {/* Zoom slider:2~16 cols */}
@@ -2914,7 +2924,7 @@ Chaser~阿明
                     <button
                       onClick={() => setGridCols(c => Math.max(2, c - 1))}
                       className="w-6 h-6 rounded bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white text-base flex items-center justify-center"
-                      title="放大(更少欄)"
+                      title={t('app.zoomIn')}
                     >−</button>
                     <input
                       type="range"
@@ -2928,7 +2938,7 @@ Chaser~阿明
                     <button
                       onClick={() => setGridCols(c => Math.min(16, c + 1))}
                       className="w-6 h-6 rounded bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white text-base flex items-center justify-center"
-                      title="縮小(更多欄)"
+                      title={t('app.zoomOut')}
                     >+</button>
                     <span className="text-[#33ff85] font-mono w-8 text-right">{gridCols}×</span>
                   </div>
@@ -2937,28 +2947,28 @@ Chaser~阿明
               {/* Filter chips:依類型過濾顯示 */}
               {cards.length > 0 && (
                 <div className="px-4 py-2 border-b border-slate-800/40 flex items-center gap-2 text-xs">
-                  <span className="text-slate-500 mr-1">篩選</span>
+                  <span className="text-slate-500 mr-1">{t('grid.filter')}</span>
                   {[
-                    { key: 'song', label: '♪ 歌曲', color: '#FFFFFF' },
-                    { key: 'talking', label: '★ TALK', color: '#FFEB3B' },
-                    { key: 'transition', label: '→ 轉場', color: '#33FF85' },
-                    { key: 'chaser', label: '◎ Chaser', color: '#FF5252' },
-                  ].map(t => {
-                    const active = filterTypes.has(t.key);
-                    const count = cards.filter(c => c.type === t.key).length;
+                    { key: 'song', tkey: 'type.song', color: '#FFFFFF' },
+                    { key: 'talking', tkey: 'type.talking', color: '#FFEB3B' },
+                    { key: 'transition', tkey: 'type.transition', color: '#33FF85' },
+                    { key: 'chaser', tkey: 'type.chaser', color: '#FF5252' },
+                  ].map(ft => {
+                    const active = filterTypes.has(ft.key);
+                    const count = cards.filter(c => c.type === ft.key).length;
                     if (count === 0) return null;
                     return (
                       <button
-                        key={t.key}
-                        onClick={() => toggleFilterType(t.key)}
+                        key={ft.key}
+                        onClick={() => toggleFilterType(ft.key)}
                         className={`px-2.5 py-1 rounded-md border transition ${
                           active
                             ? 'bg-slate-800 border-slate-600 text-slate-100'
                             : 'bg-transparent border-slate-800 text-slate-600 line-through'
                         }`}
-                        style={active ? { borderColor: t.color + '60' } : undefined}
+                        style={active ? { borderColor: ft.color + '60' } : undefined}
                       >
-                        <span style={{ color: active ? t.color : undefined }}>{t.label}</span>
+                        <span style={{ color: active ? ft.color : undefined }}>{t(ft.tkey)}</span>
                         <span className="ml-1 text-slate-500">({count})</span>
                       </button>
                     );
@@ -2967,7 +2977,7 @@ Chaser~阿明
                     <button
                       onClick={() => setFilterTypes(new Set(['song', 'talking', 'transition', 'chaser', 'section']))}
                       className="ml-auto text-slate-400 hover:text-white"
-                    >全部顯示</button>
+                    >{t('grid.showAll')}</button>
                   )}
                 </div>
               )}
@@ -2983,7 +2993,7 @@ Chaser~阿明
                 {cards.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-5">
                     <Icon.stack className="w-16 h-16 opacity-25" />
-                    <p className="text-sm text-center max-w-xs">Paste your setlist on the left — cards will appear here instantly</p>
+                    <p className="text-sm text-center max-w-xs">{t('grid.empty')}</p>
                   </div>
                 ) : (
                   <div
@@ -3020,7 +3030,7 @@ Chaser~阿明
             </div>
 
             {/* Divider:中 ⇄ 右 */}
-            <div className="col-divider" onMouseDown={startColResize('right')} title="拖曳調整右欄寬度" />
+            <div className="col-divider" onMouseDown={startColResize('right')} title={t('app.dragRight')} />
 
             {/* 右欄常駐 — 內容依選取狀態切換 */}
             <div className="flex flex-col bg-[#0a0a0c] rounded-xl border border-slate-800/40 overflow-hidden" style={{ width: `${rightWidth}px`, flexShrink: 0 }}>
@@ -3051,26 +3061,26 @@ Chaser~阿明
           <footer className="px-5 py-2 border-t border-slate-800/40 bg-[#08080a] flex items-center justify-between text-[11px] text-slate-500">
             <div className="flex items-center gap-1.5">
               {cards.length > 0 && <Icon.check className="w-3 h-3 text-emerald-400" />}
-              <span>{cards.length} 張字卡</span>
+              <span>{cards.length} {t('footer.cards')}</span>
               {selectedIds.size > 0 && (
                 <span className="text-[#33ff85] ml-3">
-                  · {selectedIds.size === 1 ? `編輯中: #${singleSelected + 1}` : `多選 ${selectedIds.size} 張`}
+                  · {selectedIds.size === 1 ? `${t('footer.editing')}: #${singleSelected + 1}` : `${t('footer.multiSelect')} ${selectedIds.size}`}
                 </span>
               )}
               {savedAt && (
                 <span className="text-emerald-500/80 ml-3">
-                  · 已儲存 {savedAt}
+                  · {t('footer.savedAt')} {savedAt}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-3">
-              <kbd>Ctrl+Enter</kbd> <span>匯出</span>
+              <kbd>Ctrl+Enter</kbd> <span>{t('footer.export')}</span>
               <span className="text-slate-700">|</span>
-              <kbd>Ctrl+Z</kbd> <span>撤銷</span>
+              <kbd>Ctrl+Z</kbd> <span>{t('footer.undo')}</span>
               <span className="text-slate-700">|</span>
-              <kbd>Ctrl+A</kbd> <span>全選</span>
+              <kbd>Ctrl+A</kbd> <span>{t('footer.selectAll')}</span>
               <span className="text-slate-700">|</span>
-              <span>fonts: <span className={fontsReady ? 'text-emerald-500' : 'text-amber-400'}>{fontsReady ? 'ready' : 'loading'}</span></span>
+              <span>{t('footer.fonts')}: <span className={fontsReady ? 'text-emerald-500' : 'text-amber-400'}>{fontsReady ? t('footer.fontsReady') : t('footer.fontsLoading')}</span></span>
               <span className="text-slate-700">|</span>
               <span>{formatVersion(appVersion)}</span>
             </div>
@@ -3117,7 +3127,7 @@ Chaser~阿明
                 setExportState(s => ({ ...s, complete: true, errors }));
               } catch (err) {
                 console.error(err);
-                alert('匯出失敗:' + err.message);
+                alert(t('app.exportFailed', { err: err.message }));
                 setExportState(null);
               }
             }}
@@ -3137,29 +3147,46 @@ Chaser~阿明
     }
 
     // Error boundary — 出錯時顯示訊息而不是黑畫面
+    // CrashScreen 是 functional,可用 useT();ErrorBoundary 是 class(catch error 必要),
+    // 因此把 ErrorBoundary 放在 LocaleContext.Provider 內,CrashScreen 才能讀 locale
+    function CrashScreen({ error, onRetry }) {
+      const t = useT();
+      return (
+        <div className="h-screen flex items-center justify-center p-8">
+          <div className="max-w-2xl bg-red-950/40 border border-red-500/40 rounded-xl p-6">
+            <h2 className="text-red-300 font-bold text-lg mb-2">⚠ {t('common.appCrashed')}</h2>
+            <pre className="text-xs text-red-200 mono whitespace-pre-wrap mb-4">{String(error)}{'\n'}{error?.stack || ''}</pre>
+            <div className="flex gap-3">
+              <button onClick={onRetry} className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold">{t('common.btnRetry')}</button>
+              <button onClick={() => { localStorage.removeItem(STORAGE_KEY); location.reload(); }} className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm">{t('common.btnClearReload')}</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     class ErrorBoundary extends React.Component {
       constructor(p) { super(p); this.state = { error: null }; }
       static getDerivedStateFromError(error) { return { error }; }
       componentDidCatch(error, info) { console.error('App error:', error, info); }
       render() {
         if (this.state.error) {
-          return (
-            <div className="h-screen flex items-center justify-center p-8">
-              <div className="max-w-2xl bg-red-950/40 border border-red-500/40 rounded-xl p-6">
-                <h2 className="text-red-300 font-bold text-lg mb-2">⚠ App crashed</h2>
-                <pre className="text-xs text-red-200 mono whitespace-pre-wrap mb-4">{String(this.state.error)}\n{this.state.error.stack}</pre>
-                <div className="flex gap-3">
-                  <button onClick={() => this.setState({ error: null })} className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-semibold">重試</button>
-                  <button onClick={() => { localStorage.removeItem(STORAGE_KEY); location.reload(); }} className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm">清除狀態並重整</button>
-                </div>
-              </div>
-            </div>
-          );
+          return <CrashScreen error={this.state.error} onRetry={() => this.setState({ error: null })} />;
         }
         return this.props.children;
       }
     }
 
-    createRoot(document.getElementById('root')).render(
-      <ErrorBoundary><App /></ErrorBoundary>
-    );
+    function Root() {
+      const [locale, setLocaleState] = useState(getInitialLocale);
+      const setLocale = useCallback((l) => { setLocaleState(l); persistLocale(l); }, []);
+      return (
+        <LocaleContext.Provider value={locale}>
+          <ErrorBoundary>
+            <App locale={locale} setLocale={setLocale} />
+          </ErrorBoundary>
+        </LocaleContext.Provider>
+      );
+    }
+
+    createRoot(document.getElementById('root')).render(<Root />);
