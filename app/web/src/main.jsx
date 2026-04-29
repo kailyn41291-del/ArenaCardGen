@@ -2822,9 +2822,14 @@ Chaser~阿明
         setSelectedIds(prev => {
           const next = new Set(prev);
           if (isShift && lastClickedIdx !== null) {
-            // 範圍選取
+            // 範圍選取 — 只加入目前 filter 顯示的卡,跳過被隱藏的
+            // (bug fix:filter on 時 shift-click 會把中間隱藏的卡也選進來,
+            //  bulk apply 時影響到那些 user 看不到的卡)
             const [a, b] = [Math.min(lastClickedIdx, i), Math.max(lastClickedIdx, i)];
-            for (let k = a; k <= b; k++) next.add(k);
+            for (let k = a; k <= b; k++) {
+              const c = cards[k];
+              if (c && filterTypes.has(c.type)) next.add(k);
+            }
           } else if (isMod) {
             // toggle
             if (next.has(i)) next.delete(i); else next.add(i);
@@ -2837,7 +2842,10 @@ Chaser~阿明
         setLastClickedIdx(i);
       };
       const clearSelection = () => setSelectedIds(new Set());
-      const selectAll = () => setSelectedIds(new Set(cards.map((_, i) => i)));
+      // Ctrl+A 全選 — 只選 filter 顯示中的卡(同 shift-click 範圍邏輯,避免選到隱藏卡)
+      const selectAll = () => setSelectedIds(new Set(
+        cards.map((c, i) => filterTypes.has(c.type) ? i : null).filter(i => i !== null)
+      ));
 
       const updateCard = (i, partial) => {
         const c = cards[i];

@@ -12,6 +12,15 @@
 
 ---
 
+## [v0.3.0-beta14] — 2026-04-27
+
+### Fixed
+- **filter on 時 Shift+click 範圍選取會把隱藏的卡也選進來**(bug):user 把 filter 設成只顯示「歌曲」,然後 shift-click 範圍選取,中間被 filter 隱藏的 TALK / 轉場 / Chaser 卡也會進 selectedIds。bulk apply 顏色 / 類型時影響到 user 看不到的卡,deselect / 取消 filter 後才發現「中間那些卡也變色了」
+- 修法:`handleCardClick` 範圍選取迴圈內加 `filterTypes.has(c.type)` check,只加目前 filter 顯示的卡
+- `selectAll`(Ctrl+A)同步修:只選 filter 顯示中的卡(同邏輯)
+
+---
+
 ## [v0.3.0-beta13] — 2026-04-28
 
 ### Changed
