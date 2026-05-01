@@ -25,4 +25,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUpdateDownloaded: onChannel('update-downloaded'),   // payload: { version }
   onUpdateError: onChannel('update-error'),             // payload: { message }
   installUpdateNow: () => ipcRenderer.invoke('install-update-now'),
+  // ── 匯出直接字卡到資料夾(Electron only;web 走 ZIP fallback)──
+  selectExportFolder: () => ipcRenderer.invoke('select-export-folder'),
+  writePng: (args) => ipcRenderer.invoke('write-png', args),
+  revealFolder: (folder) => ipcRenderer.invoke('reveal-folder', folder),
 });

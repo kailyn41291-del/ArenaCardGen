@@ -122,11 +122,56 @@ app.on('window-all-closed', () => {
 
 // ────────────────────────────────────────────────────────────────
 // IPC handlers
-// 註:select-export-folder / write-png / open-folder / app-platform 都拿掉了
-// (renderer 沒呼叫,匯出走瀏覽器 ZIP 下載)。將來改原生 folder export 時再加回。
+// 註:select-export-folder / write-png / reveal-folder 是 batch B 加回來的
+// (匯出時 user 可以選「直接字卡到資料夾」/「ZIP 打包」)
 // ────────────────────────────────────────────────────────────────
 
 ipcMain.handle('app-version', () => app.getVersion());
+
+// ────── 匯出資料夾相關(直接字卡模式)──────
+
+// User 選資料夾(NSIS / macOS native dialog)
+ipcMain.handle('select-export-folder', async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select export folder',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (r.canceled || !r.filePaths || !r.filePaths.length) return null;
+  return r.filePaths[0];
+});
+
+// 寫單張 PNG 到指定資料夾。renderer 負責 render canvas → blob → arrayBuffer
+// 路徑安全:filename 不准含 / \ ..(防 path traversal),且 realpath 必須仍在 folder 下
+ipcMain.handle('write-png', async (_e, payload) => {
+  try {
+    const { folder, filename, buffer } = payload || {};
+    if (!folder || typeof folder !== 'string') return { ok: false, error: 'invalid folder' };
+    if (!filename || typeof filename !== 'string') return { ok: false, error: 'invalid filename' };
+    if (/[\\/]|\.\./.test(filename)) return { ok: false, error: 'invalid filename chars' };
+    const safePath = path.join(folder, filename);
+    const folderReal = path.resolve(folder);
+    const safeReal = path.resolve(safePath);
+    if (!safeReal.startsWith(folderReal + path.sep) && safeReal !== folderReal) {
+      return { ok: false, error: 'path escape' };
+    }
+    fs.writeFileSync(safePath, Buffer.from(buffer));
+    return { ok: true, path: safePath };
+  } catch (err) {
+    console.error('[write-png]', err);
+    return { ok: false, error: err.message };
+  }
+});
+
+// 在 OS 檔案管理員打開資料夾(Win:Explorer / Mac:Finder)
+ipcMain.handle('reveal-folder', async (_e, folder) => {
+  if (!folder || typeof folder !== 'string') return { ok: false };
+  try {
+    await shell.openPath(folder);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
 
 // 立即重啟並安裝下載好的更新
 // 若 quitAndInstall 失敗(極少見,Win 下例如權限 / 防毒擋安裝程式),

@@ -12,6 +12,22 @@
 
 ---
 
+## [v0.3.0-beta17] — 2026-05-01
+
+### Fixed
+- **篩選後 Ctrl+A 還是會選到隱藏卡**(beta14 那次沒修透 — keydown handler 的 useEffect dependency 漏了 `cards` + `filterTypes`,closure 永遠抓初始版本的 selectAll)。這次 deps 補齊,真正修好
+
+### Added
+- **多選編輯加「回到預設類型」按鈕**(套用類型到全部下方):清掉 type override 後,卡片回到 setlist 文字推出來的原始類型(歌曲、轉場、Chaser 等)
+- **匯出時可以選「直接字卡 / ZIP 打包」**:預設「直接字卡」走 native folder picker(Win Explorer / Mac Finder),PNG 一張張寫到 user 選的資料夾,完成後可一鍵打開資料夾。「ZIP 打包」沿用舊行為。瀏覽器版只能用 ZIP(直接字卡 disabled + 提示)
+- 4 語言加 i18n key:`checklist.exportMode/modeFiles/modeZip/webOnlyZip`、`export.bodyFilesRunning/bodyFilesDone/btnRevealFolder`、`bulk.clearType`
+
+### Changed
+- `updateMultipleCards` 處理 `null` 值改成「刪除 override key」(讓 parsed 原值穿透),整個 override 清空時連 entry 一起刪(localStorage 不留空殼)
+- 重新加回 `select-export-folder` / `write-png` / `reveal-folder` IPC handler(beta5 cleanup 時拿掉的,batch B 真的要用了)
+
+---
+
 ## [v0.3.0-beta16] — 2026-05-01
 
 ### Added

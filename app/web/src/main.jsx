@@ -707,6 +707,36 @@ window.pdfjsLib = pdfjsLib;
       return fileEntries;
     }
 
+    // 匯出直接字卡到資料夾(Electron only)— 透過 IPC 逐張寫 PNG
+    // 行為跟 exportAllToZip 平行,差別:不打包成 ZIP,直接寫到 user 選的資料夾
+    async function exportAllToFolder(cards, settings, folder, onProgress, originalIndices) {
+      const fileEntries = [];
+      for (let i = 0; i < cards.length; i++) {
+        const c = cards[i];
+        const realIdx = originalIndices ? originalIndices[i] : i;
+        const fname = buildFilename(c, realIdx);
+        try {
+          const canvas = renderCardToCanvas(c, settings);
+          const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob 回傳 null')), 'image/png');
+          });
+          const buffer = new Uint8Array(await blob.arrayBuffer());
+          const r = await window.electronAPI.writePng({ folder, filename: fname, buffer });
+          if (r && r.ok) {
+            fileEntries.push({ idx: realIdx + 1, total: cards.length, name: fname });
+          } else {
+            fileEntries.push({ idx: realIdx + 1, total: cards.length, name: fname, error: (r && r.error) || 'write failed' });
+          }
+        } catch (err) {
+          // 渲染失敗或 IPC 失敗,標記但繼續(同 ZIP 模式)
+          fileEntries.push({ idx: realIdx + 1, total: cards.length, name: fname, error: err.message || String(err) });
+        }
+        if (onProgress) onProgress(i + 1, cards.length, fname);
+        await new Promise(r => setTimeout(r, 0));
+      }
+      return fileEntries;
+    }
+
     // ────────────────────────────────────────────────────────────────
     // Gemini 2.0 Flash 智慧解析 — 處理規則 parser 解不掉的雜亂 RD
     // 免費 tier:1500 次/天(用戶自填 API key)
@@ -1322,6 +1352,7 @@ Chaser
       const applyBg = (hex) => onApply(ids, { bgOverride: hex });
       const clearBg = () => onApply(ids, { bgOverride: null });
       const applyType = (type) => onApply(ids, { type });
+      const clearType = () => onApply(ids, { type: null });  // 刪掉 type override,回到 parser 從 setlist text 推出來的原始類型
 
       return (
         <div className="h-full flex flex-col">
@@ -1432,6 +1463,9 @@ Chaser
                     </button>
                   ))}
                 </div>
+                <button onClick={clearType} className="mt-2 w-full py-2 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800 text-xs text-slate-400 hover:text-slate-200 transition">
+                  {t('bulk.clearType')}
+                </button>
               </section>
             </div>
 
@@ -1908,9 +1942,17 @@ Chaser
     function ExportChecklist({ open, cards, selectedIds, settings, fontsReady, onClose, onConfirm }) {
       const t = useT();
       const hasSelection = selectedIds && selectedIds.size > 0;
+      const hasFolderExport = !!(window.electronAPI && window.electronAPI.selectExportFolder);
       // scope:default 'all'(主流操作是匯出全部);user 想 narrow 才主動切「只選中」
       const [scope, setScope] = useState('all');
-      useEffect(() => { if (open) setScope('all'); }, [open]);
+      // mode:default 'files'(直接寫 PNG 到資料夾,Electron 才有);web fallback 'zip'
+      const [exportMode, setExportMode] = useState(hasFolderExport ? 'files' : 'zip');
+      useEffect(() => {
+        if (open) {
+          setScope('all');
+          setExportMode(hasFolderExport ? 'files' : 'zip');
+        }
+      }, [open, hasFolderExport]);
 
       // 把選中的 idx 排序好,filter cards 跟 originalIndices 用
       const selectedIdxArr = useMemo(
@@ -1959,6 +2001,37 @@ Chaser
                 </button>
               </div>
               <div className="p-6 space-y-3">
+                {/* 匯出方式 — 直接字卡 / ZIP */}
+                <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-3 space-y-2">
+                  <div className="text-[11px] uppercase tracking-widest text-slate-500">{t('checklist.exportMode')}</div>
+                  <div role="radiogroup" aria-label={t('checklist.exportMode')} className="grid grid-cols-2 gap-2">
+                    <button
+                      role="radio"
+                      aria-checked={exportMode === 'files'}
+                      onClick={() => hasFolderExport && setExportMode('files')}
+                      disabled={!hasFolderExport}
+                      className={`py-2 px-3 rounded text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-[#00ff66]/60 ${
+                        exportMode === 'files'
+                          ? 'bg-[#00ff66] text-black'
+                          : 'bg-slate-800/60 text-slate-300 hover:bg-slate-700/60'
+                      } ${!hasFolderExport ? 'opacity-40 cursor-not-allowed' : ''}`}
+                    >📁 {t('checklist.modeFiles')}</button>
+                    <button
+                      role="radio"
+                      aria-checked={exportMode === 'zip'}
+                      onClick={() => setExportMode('zip')}
+                      className={`py-2 px-3 rounded text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-[#00ff66]/60 ${
+                        exportMode === 'zip'
+                          ? 'bg-[#00ff66] text-black'
+                          : 'bg-slate-800/60 text-slate-300 hover:bg-slate-700/60'
+                      }`}
+                    >📦 {t('checklist.modeZip')}</button>
+                  </div>
+                  {!hasFolderExport && (
+                    <div className="text-[10px] text-amber-400/80">{t('checklist.webOnlyZip')}</div>
+                  )}
+                </div>
+
                 {/* 範圍選擇:全部 vs 只選中(只有 hasSelection 時才顯示)*/}
                 {hasSelection && (
                   <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-3 space-y-2">
@@ -2001,7 +2074,7 @@ Chaser
               </div>
               <div className="px-6 pb-6 pt-2">
                 <button
-                  onClick={() => onConfirm(exportCards, originalIndices)}
+                  onClick={() => onConfirm(exportCards, originalIndices, exportMode)}
                   disabled={!canExport}
                   className={`w-full py-3.5 rounded-xl text-base font-bold transition ${
                     !canExport
@@ -2049,8 +2122,12 @@ Chaser
               <div className="p-6 space-y-4">
                 <div className="text-sm text-slate-300">
                   {state.complete
-                    ? t('export.bodyDone', { done: state.total - errors.length, total: state.total })
-                    : t('export.bodyRunning', { current: state.current, total: state.total })}
+                    ? (state.mode === 'files'
+                        ? t('export.bodyFilesDone', { done: state.total - errors.length, total: state.total, folder: state.folder || '' })
+                        : t('export.bodyDone', { done: state.total - errors.length, total: state.total }))
+                    : (state.mode === 'files'
+                        ? t('export.bodyFilesRunning', { current: state.current, total: state.total })
+                        : t('export.bodyRunning', { current: state.current, total: state.total }))}
                 </div>
                 <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                   <div
@@ -2070,6 +2147,15 @@ Chaser
                       ))}
                     </ul>
                   </div>
+                )}
+                {/* files 模式 + 完成時,提供「打開資料夾」按鈕(Win:Explorer / Mac:Finder)*/}
+                {state.complete && state.mode === 'files' && state.folder && window.electronAPI?.revealFolder && (
+                  <button
+                    onClick={() => window.electronAPI.revealFolder(state.folder)}
+                    className="w-full py-2.5 rounded-lg bg-slate-800/60 hover:bg-slate-700 text-sm text-slate-200 transition border border-slate-700/50"
+                  >
+                    📂 {t('export.btnRevealFolder')}
+                  </button>
                 )}
                 {state.complete && (
                   <button
@@ -2862,7 +2948,18 @@ Chaser~阿明
           ids.forEach(i => {
             const c = cards[i];
             if (!c || !c._id) return;
-            next[c._id] = { ...(next[c._id] || {}), ...rest };
+            const merged = { ...(next[c._id] || {}), ...rest };
+            // null/undefined 表示「清除這個 override field」,刪掉 key 讓
+            // parsed 原值穿透(尤其是 type — 不能存 null,否則 c.type 是 null 後面會 crash)
+            Object.keys(rest).forEach(k => {
+              if (rest[k] === null || rest[k] === undefined) delete merged[k];
+            });
+            // 若整個 override 清空了,連 entry 一起刪(不然 localStorage 累積空殼)
+            if (Object.keys(merged).length === 0) {
+              delete next[c._id];
+            } else {
+              next[c._id] = merged;
+            }
           });
           return next;
         });
@@ -2933,7 +3030,11 @@ Chaser~阿明
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-      }, [cards.length, exportState]);
+        // ⚠ 必須包 cards / filterTypes — onKey 內呼叫的 selectAll 是新 render 的版本,
+        // 它 lexically 抓 cards + filterTypes。如果 deps 沒包,useEffect 不重跑,
+        // onKey closure 永遠拿初始 selectAll(填的是 mount 當下的 filterTypes,
+        // 預設全 5 類型),user 改 filter chip 後 Ctrl+A 仍全選 → bug
+      }, [cards, filterTypes, exportState]);
 
       const selectedIdxArr = useMemo(() => Array.from(selectedIds).sort((a, b) => a - b), [selectedIds]);
       const singleSelected = selectedIdxArr.length === 1 ? selectedIdxArr[0] : null;
@@ -3296,21 +3397,42 @@ Chaser~阿明
             settings={settings}
             fontsReady={fontsReady}
             onClose={() => setShowChecklist(false)}
-            onConfirm={async (exportCards, originalIndices) => {
+            onConfirm={async (exportCards, originalIndices, mode) => {
               setShowChecklist(false);
               const list = exportCards || cards;
-              setExportState({ current: 0, total: list.length, currentFile: '', complete: false, errors: [] });
-              try {
-                const fileEntries = await exportAllToZip(list, settings, (current, total, currentFile) => {
-                  setExportState(s => ({ ...(s || {}), current, total, currentFile, complete: false }));
-                }, originalIndices);
-                // 標記哪些卡渲染失敗(B-1:不能 silent dropped,VJ 在演唱會少 1 張字卡 = LIVE 災難)
-                const errors = (fileEntries || []).filter(e => e.error);
-                setExportState(s => ({ ...s, complete: true, errors }));
-              } catch (err) {
-                console.error(err);
-                alert(t('app.exportFailed', { err: err.message }));
-                setExportState(null);
+              const useFiles = mode === 'files' && window.electronAPI?.selectExportFolder;
+
+              if (useFiles) {
+                // 直接字卡模式 — 先讓 user 選資料夾(取消 = 不匯出)
+                let folder = null;
+                try { folder = await window.electronAPI.selectExportFolder(); } catch {}
+                if (!folder) return;  // user 取消 folder picker
+                setExportState({ current: 0, total: list.length, currentFile: '', complete: false, errors: [], mode: 'files', folder });
+                try {
+                  const fileEntries = await exportAllToFolder(list, settings, folder, (current, total, currentFile) => {
+                    setExportState(s => ({ ...(s || {}), current, total, currentFile, complete: false }));
+                  }, originalIndices);
+                  const errors = (fileEntries || []).filter(e => e.error);
+                  setExportState(s => ({ ...s, complete: true, errors }));
+                } catch (err) {
+                  console.error(err);
+                  alert(t('app.exportFailed', { err: err.message }));
+                  setExportState(null);
+                }
+              } else {
+                // ZIP 模式(既有行為)
+                setExportState({ current: 0, total: list.length, currentFile: '', complete: false, errors: [], mode: 'zip' });
+                try {
+                  const fileEntries = await exportAllToZip(list, settings, (current, total, currentFile) => {
+                    setExportState(s => ({ ...(s || {}), current, total, currentFile, complete: false }));
+                  }, originalIndices);
+                  const errors = (fileEntries || []).filter(e => e.error);
+                  setExportState(s => ({ ...s, complete: true, errors }));
+                } catch (err) {
+                  console.error(err);
+                  alert(t('app.exportFailed', { err: err.message }));
+                  setExportState(null);
+                }
               }
             }}
           />
