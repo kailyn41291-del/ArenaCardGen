@@ -12,6 +12,19 @@
 
 ---
 
+## [v0.3.0-beta18] — 2026-05-01
+
+### Security
+- **修 12 個漏洞**:Electron `33` → `41`(18 個高危 CVE 一次補)、electron-builder `25` → `26.9.0`(連帶 tar / @tootallnate/once / cacache 一次乾淨)。`npm audit` 從 `12 vulnerabilities (2 low, 10 high)` → `found 0 vulnerabilities`
+
+### Changed
+- 加 `build.toolsets.winCodeSign: "1.1.0"` 設定:electron-builder 26 推的新工具包(乾淨的獨立 zip,沒有舊 .7z 內含的 macOS symlink → 在 Windows 一般使用者權限下打包 NSIS 安裝包不再撞 symlink 解壓失敗)
+
+### Known issue(升級副作用)
+- **舊版加密的 Gemini API key 在 beta18 解不開**:Electron 大版本升級時 safeStorage 加密格式不相容(33 加密的密文 41 解不出來)。User 升上 beta18 後 SettingsModal 會看到 key 欄位空白,**重新貼一次** API key 即可。程式不會崩,只是 key 看起來不見
+
+---
+
 ## [v0.3.0-beta17] — 2026-05-01
 
 ### Fixed
