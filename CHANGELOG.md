@@ -12,6 +12,14 @@
 
 ---
 
+## [v0.3.0-beta15] — 2026-05-01
+
+### Fixed
+- **PDF 上傳解析撞 `n.toHex is not a function` runtime error**:`pdfjs-dist@5.6.205` 在處理某些演唱會 RD PDF 時(實測:谢娜 2026 演唱會 RUNDOWN PDF,11 頁)worker 內部 minified code throw `toHex` undefined。升級到 `5.7.284`(本地 Node 直接跑同份 PDF 11 頁全通,8306 chars 抽出乾淨)
+- 修法:`app/package.json` `pdfjs-dist` `^5.6.205` → `^5.7.284`,`package-lock.json` 對齊。`pdf.worker.min.mjs`(gitignored)CI build 時自動 copy 新版
+
+---
+
 ## [v0.3.0-beta14] — 2026-04-27
 
 ### Fixed
