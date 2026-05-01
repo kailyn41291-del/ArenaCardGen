@@ -2440,6 +2440,8 @@ Chaser~阿明
       //   { state: 'downloaded',  version }
       //   { state: 'error',       message }
       const [updateInfo, setUpdateInfo] = useState(null);
+      // Footer 版本號點擊檢查更新的狀態:'' / 'checking' / 'latest' / 'newer:vX.Y.Z' / 'error'
+      const [footerCheckState, setFooterCheckState] = useState('');
       // 全平台都走 Tier 2 — Mac 用 .zip + ad-hoc 簽名讓 Squirrel.Mac 允許 in-place replace
       // 若 Mac 撞 Gatekeeper,update-error event 會走 fallback「Download」按鈕引到 release 頁
       const isElectronUpdate = !!window.electronAPI?.onUpdateAvailable;
@@ -3233,7 +3235,36 @@ Chaser~阿明
               <span className="text-slate-700">|</span>
               <span>{t('footer.fonts')}: <span className={fontsReady ? 'text-emerald-500' : 'text-amber-400'}>{fontsReady ? t('footer.fontsReady') : t('footer.fontsLoading')}</span></span>
               <span className="text-slate-700">|</span>
-              <span>{formatVersion(appVersion)}</span>
+              {/* 點版本號觸發檢查更新 — 旁邊 inline 顯示狀態(checking / latest / newer / error)*/}
+              <button
+                onClick={async () => {
+                  if (footerCheckState === 'checking') return;
+                  setFooterCheckState('checking');
+                  const r = await checkForUpdates({ ignoreDismissed: true });
+                  setFooterCheckState(r);
+                  // 'latest' / 'error' 3 秒後自動清掉。'newer:' 留著(user 可從 toast 動作)
+                  if (r === 'latest' || r === 'error') {
+                    setTimeout(() => setFooterCheckState(s => (s === r ? '' : s)), 3000);
+                  }
+                }}
+                className="text-slate-500 hover:text-slate-200 transition cursor-pointer"
+                title={t('settings.checkUpdate')}
+                disabled={footerCheckState === 'checking'}
+              >
+                {formatVersion(appVersion)}
+              </button>
+              {footerCheckState === 'checking' && (
+                <span className="text-slate-500">{t('settings.checking')}</span>
+              )}
+              {footerCheckState === 'latest' && (
+                <span className="text-emerald-400/80">✓ {t('settings.latest')}</span>
+              )}
+              {footerCheckState.startsWith('newer:') && (
+                <span className="text-[#33ff85]">{footerCheckState.slice(6)} {t('settings.newer')}</span>
+              )}
+              {footerCheckState === 'error' && (
+                <span className="text-amber-400/80">⚠ {t('settings.checkError')}</span>
+              )}
             </div>
           </footer>
 

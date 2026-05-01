@@ -12,6 +12,14 @@
 
 ---
 
+## [v0.3.0-beta16] — 2026-05-01
+
+### Added
+- **Footer 版本號點擊觸發檢查更新**:右下角版本號變 button,點下去跑 GitHub Releases API 比對,旁邊 inline 顯示「檢查中… → ✓ 已是最新 / v0.3.0-betaX 可下載 / ⚠ 檢查失敗」狀態。3 秒後自動清掉(已是最新 / 失敗;有新版的話保持顯示讓 user 看見)。Hover 變色 + tooltip 提示「檢查更新」
+- 不影響原本 SettingsModal 內「檢查更新」按鈕(兩個 entry point 共用同一個 `checkForUpdates` function)
+
+---
+
 ## [v0.3.0-beta15] — 2026-05-01
 
 ### Fixed
